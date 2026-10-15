@@ -101,14 +101,14 @@ build_image() {
 	[ -f "$RAMDISK" ] || die "Nincs recovery ramdisk: $RAMDISK"
 	for f in Image dtb.img dtbo.img; do [ -f "$OUT_DIR/$f" ] || die "Hiányzik: $OUT_DIR/$f (build-kernel.sh)"; done
 	log "recovery.img"
-	# A TWRP-hez hasonlóan recovery_dtbo-val: a bootloader a recovery
-	# partícióról indulva ezt is betölti.
+	# A recovery_dtbo szándékosan kimarad: a bootloader a recovery indulásakor
+	# az érintetlen gyári "dtbo" partíciót alkalmazza az alap dtb-re (mint a
+	# normál boot.img), így nincs beégetett, board-revízióhoz kötött overlay.
 	mkbootimg \
 		--header_version "$BOOTIMG_HEADER_VERSION" \
 		--kernel "$OUT_DIR/Image" \
 		--ramdisk "$RAMDISK" \
 		--dtb "$OUT_DIR/dtb.img" \
-		--recovery_dtbo "$OUT_DIR/dtbo.img" \
 		--base "$BOOTIMG_BASE" \
 		--pagesize "$BOOTIMG_PAGESIZE" \
 		--kernel_offset "$BOOTIMG_KERNEL_OFFSET" \
