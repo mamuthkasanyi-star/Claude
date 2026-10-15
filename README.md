@@ -10,7 +10,7 @@ Ubuntu 24.04 alap, **Cinnamon** asztal, magyar nyelv.
 
 | | |
 |---|---|
-| Asztal | Cinnamon, sötét téma (Yaru-dark), fekete háttér piros neon pingvinnel, mamutos boot-logó, 2× méretezés |
+| Asztal | Cinnamon, sötét téma (Yaru-dark), mamutos háttér és boot-logó (neon pingvin választható), 2× méretezés |
 | Bejelentkezés | automatikus (`mamuthka`), képernyőzár a jelszóval |
 | Nyelv | magyar felület és billentyűzet, Europe/Budapest |
 | Programok | Firefox (nem snap), Szoftverek (GNOME Software + **Flathub**), terminál, git, Python, SSH |
@@ -121,7 +121,7 @@ devices/samsung-a51/          eszközfüggő rész
   overlay/                    eszközfüggő rendszerfájlok (Xorg, NetworkManager)
 initramfs/                    busybox init: rendszer megkeresése, USB-hálózat, hibakereső mód
 recovery/                     Mamuthka Recovery: init, menü-script, rui (framebuffer UI, C), eszközlista
-assets/                       mamutos képek (boot-logó, választható háttér)
+assets/                       mamutos képek (háttér, boot-logó)
 sajat/                        a te fájljaid: sajat/rootfs/ tartalma bekerül a rendszerbe
 docs/pmos-javitasok.md        kitöltendő lista a pmOS-es javításokhoz (+ scripts/pmos-gyujto.sh)
 rootfs/                       csomaglista, beállító script, közös rendszerfájlok

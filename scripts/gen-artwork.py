@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Mamuthka linux grafikák: háttérkép és boot-logó.
 
-Háttérkép: fekete, közepén kicsi, rajzolt pingvinkörvonal élénkpiros derengéssel.
-Boot-logó és ikon: a mamutos rész kivágása az assets/wallpaper-portrait.jpg-ből
-(a mamutos képek változatlanul az assets/ mappában vannak).
+Háttérkép: a mamutos kép (assets/wallpaper-portrait.jpg, fekvőben -landscape).
+Boot-logó és ikon: a mamutos rész kivágása az álló képből.
+Választható alternatíva: fekete háttér kicsi, piros neon pingvinkörvonallal.
 
 Használat: gen-artwork.py <rootfs> <képernyő-szélesség> <képernyő-magasság>
 Függőség: python3-pil (Pillow)
@@ -87,11 +87,11 @@ def main():
     portrait = Image.open(os.path.join(ASSETS, "wallpaper-portrait.jpg")).convert("RGB")
     landscape = Image.open(os.path.join(ASSETS, "wallpaper-landscape.jpg")).convert("RGB")
 
-    wallpaper(w, h).save(os.path.join(bg, "wallpaper.png"))
-    wallpaper(max(w, h), min(w, h)).save(os.path.join(bg, "wallpaper-landscape.png"))
-    # A mamutos képek is választhatók a Háttérkép-beállításokban.
-    fit_black(portrait, w, h).save(os.path.join(bg, "mamuthka-portrait.png"))
-    fit_black(landscape, max(w, h), min(w, h)).save(os.path.join(bg, "mamuthka-landscape.png"))
+    # Alapértelmezett háttér: a mamutos kép.
+    fit_black(portrait, w, h).save(os.path.join(bg, "wallpaper.png"))
+    fit_black(landscape, max(w, h), min(w, h)).save(os.path.join(bg, "wallpaper-landscape.png"))
+    # A neon pingvin választható alternatíva a Háttérkép-beállításokban.
+    wallpaper(w, h).save(os.path.join(bg, "pingvin-neon.png"))
     logo(portrait, min(w, h) * 3 // 4).save(os.path.join(ply, "logo.png"))
     dot(max(8, min(w, h) // 60)).save(os.path.join(ply, "dot.png"))
 
