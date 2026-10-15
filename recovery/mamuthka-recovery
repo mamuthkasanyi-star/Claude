@@ -454,6 +454,17 @@ menu_power() {
 	esac
 }
 
+# --------------------------------------------------------- diagnosztika ---
+show_diag() {
+	D=/tmp/elozo-inditas
+	t="Előző újraindulás oka: $(head -c 60 "$D/proc_reset_reason" 2>/dev/null | tr '\n' ' ')"
+	t="$t\n$(head -c 300 "$D/proc_auto_comment" 2>/dev/null | tr '\n' ' ')"
+	t="$t\n\nWatchdog: $(pidof watchdog >/dev/null && echo fut || echo NEM fut)"
+	t="$t\nUSB-vezérlő: $(ls /sys/class/udc 2>/dev/null | head -1)"
+	t="$t\n\nNapló vége:\n$(grep -v '^ *$' /tmp/recovery.log | tail -n 12 | cut -c1-60)"
+	msg "Diagnosztika" "$t"
+}
+
 # ------------------------------------------------------------- főmenü ---
 detect_device
 head="Mamuthka linux telepítése"
@@ -465,13 +476,15 @@ while :; do
 		"Javítás" \
 		"Mentés / visszaállítás (microSD)" \
 		"Wi-Fi beállítása" \
-		"Újraindítás / kikapcsolás")"
+		"Újraindítás / kikapcsolás" \
+		"Diagnosztika (napló)")"
 	case "$sel" in
 		0) do_install ;;
 		1) menu_repair ;;
 		2) menu_backup ;;
 		3) ensure_wifi && msg "Wi-Fi" "Csatlakozva.\n$(ip -4 addr show | awk '/inet / && !/127\./ {print $2}')" ;;
 		4) menu_power ;;
+		5) show_diag ;;
 	esac
 	umount_root
 done

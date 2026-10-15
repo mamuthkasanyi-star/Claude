@@ -49,6 +49,16 @@ Készülék Letöltés módból beolvasott állapota:
   partíciót használja, mint a normál boot.img. Ez a `recovery_dtbo`
   board-rev eltérésének kizárására szolgáló TESZT.
 
+- (következő commit) – **Watchdog-pöcögtetés** (`initramfs/watchdog.sh`): a
+  recovery és az initramfs minden `/dev/watchdogN`-re busybox `watchdog -t 1
+  -T 20`-at indít; az initramfs a switch_root előtt magic close-zal leállítja.
+  **Diagnosztika:** a recovery induláskor kimenti az előző indítás nyomait
+  (`/proc/reset_reason`, `auto_comment`, `last_kmsg`, pstore →
+  `/tmp/elozo-inditas/`), az okot kiírja az indítóképernyőre, a naplót a
+  `/dev/kmsg`-be is küldi; új menüpont: *Diagnosztika (napló)*.
+  **USB:** az `usbnet.sh` max. 10 mp-ig vár a UDC-re (2026-10-15 teszt: a
+  recovery alatt a gépen semmilyen USB-eszköz nem jelent meg).
+
 ## Build / release
 
 - Utolsó build: run 38808409340 (`09a47f0`), **conclusion: success**

@@ -11,13 +11,37 @@ mount -t devpts devpts /dev/pts
 mount -t configfs configfs /config 2>/dev/null
 mount -t tmpfs tmpfs /tmp
 mount -t tmpfs tmpfs /run
+mount -t pstore pstore /sys/fs/pstore 2>/dev/null
 
 . /etc/mamuthka/recovery.conf
 . /lib/mamuthka/usbnet.sh
+. /lib/mamuthka/watchdog.sh
 
 exec >/tmp/recovery.log 2>&1
 echo "Mamuthka Recovery – $(uname -r)"
 cat /proc/cmdline
+
+# Elsőként: a watchdogok pöcögtetése, különben a telefon pár mp/perc múlva
+# újraindul (bootloop).
+start_watchdogs
+
+# A napló a kernel naplójába is megy, így egy összeomlás/újraindulás után a
+# következő indításkor a /proc/last_kmsg-ben (pstore) is látszik.
+(tail -n +1 -f /tmp/recovery.log | while IFS= read -r l; do
+	echo "mamuthka-recovery: $l" > /dev/kmsg
+done) 2>/dev/null &
+
+# Az előző indítás összeomlásának/újraindulásának nyomai (Samsung sec_debug, pstore).
+D=/tmp/elozo-inditas
+mkdir -p "$D"
+for f in /proc/reset_reason /proc/reset_summary /proc/auto_comment /proc/reset_rwc \
+	/proc/extra /proc/last_kmsg /sys/fs/pstore/*; do
+	[ -r "$f" ] && cat "$f" > "$D/$(echo "${f#/}" | tr / _)" 2>/dev/null
+done
+ls -la "$D"
+for f in "$D"/proc_reset_reason "$D"/proc_auto_comment; do
+	[ -s "$f" ] && { echo "== $f"; head -c 600 "$f"; echo; }
+done
 
 # A szöveges konzol (fbcon) ne rajzoljon a felületre.
 dmesg -n 1
@@ -25,10 +49,15 @@ for v in /sys/class/vtconsole/vtcon*/bind; do
 	grep -q "frame buffer" "${v%/bind}/name" 2>/dev/null && echo 0 > "$v"
 done
 
-rui status "Indítás…" "USB-hálózat: telnet $USB_NET_IP" &
+# Az előző újraindulás oka a képernyőn (lefotózható, ha a recovery megint újraindulna).
+reason="$(head -c 40 "$D/proc_reset_reason" 2>/dev/null | tr -d '\n')"
+comment="$(head -c 200 "$D/proc_auto_comment" 2>/dev/null | tr '\n' ' ')"
+rui status "Indítás…" "USB: telnet $USB_NET_IP\nElőző újraindulás: ${reason:-?}\n$comment" &
+
 setup_usb_network
 # A recovery-ben a hibakereső shell mindig elérhető USB-kábelen.
 telnetd -b "$USB_NET_IP:23" -l /bin/sh
+[ -n "$comment" ] && sleep 4
 
 while :; do
 	/usr/bin/mamuthka-recovery

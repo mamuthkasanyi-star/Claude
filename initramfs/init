@@ -26,6 +26,10 @@ TAIL_PID=$!
 echo "Mamuthka linux initramfs – $(uname -r)"
 
 . /lib/mamuthka/usbnet.sh
+. /lib/mamuthka/watchdog.sh
+
+# A watchdogokat a rendszer indulásáig mi pöcögtetjük (lásd watchdog.sh).
+start_watchdogs
 
 debug_shell() {
 	echo
@@ -90,6 +94,7 @@ cp "$LOG" /sysroot/var/log/mamuthka-initramfs.log 2>/dev/null
 kill "$TAIL_PID" 2>/dev/null
 # A USB-gadget aktív marad; a DHCP-t a rendszerben a dnsmasq veszi át.
 killall udhcpd telnetd 2>/dev/null
+stop_watchdogs
 umount /config 2>/dev/null
 
 umount /dev/pts

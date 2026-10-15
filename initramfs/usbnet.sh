@@ -19,7 +19,14 @@ setup_usb_network() {
 	fi
 
 	G=/config/usb_gadget/g1
+	# A USB-vezérlő (dwc3) a korai indulásnál még nem mindig jelent meg:
+	# legfeljebb 10 mp-ig várunk rá.
+	n=0
+	while [ $n -lt 50 ] && [ -z "$(ls /sys/class/udc 2>/dev/null)" ]; do
+		n=$((n + 1)); sleep 0.2
+	done
 	UDC="$(ls /sys/class/udc 2>/dev/null | head -1)"
+	echo "USB: UDC='${UDC:-nincs}' ($((n * 2 / 10)) mp várakozás), configfs: $([ -d /config/usb_gadget ] && echo van || echo NINCS)"
 	if [ -d /config/usb_gadget ] && [ -n "$UDC" ]; then
 		echo "USB: configfs ($UDC)"
 		mkdir -p "$G/strings/0x409"

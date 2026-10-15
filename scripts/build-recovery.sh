@@ -75,6 +75,7 @@ build_ramdisk() {
 	install -m755 "$ROOT_DIR/recovery/mamuthka-recovery" "$RD/usr/bin/mamuthka-recovery"
 	install -m755 "$ROOT_DIR/recovery/udhcpc.script" "$RD/usr/share/udhcpc/default.script"
 	install -Dm644 "$ROOT_DIR/initramfs/usbnet.sh" "$RD/lib/mamuthka/usbnet.sh"
+	install -Dm644 "$ROOT_DIR/initramfs/watchdog.sh" "$RD/lib/mamuthka/watchdog.sh"
 	install -m644 "$ROOT_DIR/recovery/devices.list" "$RD/etc/mamuthka/devices.list"
 	cat > "$RD/etc/mamuthka/recovery.conf" <<-EOF
 		OS_ID="$OS_ID"
