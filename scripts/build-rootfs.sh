@@ -6,7 +6,7 @@
 . "$(dirname "$0")/lib.sh"
 
 need_root
-need debootstrap mkfs.ext4 python3 curl sha512sum
+need debootstrap mkfs.ext4 e2fsck python3 curl sha512sum truncate chroot mountpoint du
 
 ROOTFS="$WORK_DIR/rootfs"
 TARGET_ARCH="$DEVICE_ARCH"
@@ -103,6 +103,12 @@ chroot "$ROOTFS" /usr/bin/env -i \
 	DEVICE_PACKAGES="$DEVICE_PACKAGES" \
 	/bin/bash /tmp/setup.sh
 rm -f "$ROOTFS/tmp/setup.sh" "$ROOTFS/etc/resolv.conf.build"
+# A saját fájlok még egyszer, a csomagtelepítés UTÁN is: így a csomagok
+# /usr alatti (nem conffile) fájljait is felülírják (sajat/README.md).
+if [ -d "$ROOT_DIR/sajat/rootfs" ]; then
+	cp -a "$ROOT_DIR/sajat/rootfs/." "$ROOTFS/"
+	rm -f "$ROOTFS/.gitkeep"
+fi
 cleanup
 [ -n "$QEMU" ] && rm -f "$ROOTFS/usr/bin/$QEMU"
 rm -f "$ROOTFS/.stage-debootstrap"

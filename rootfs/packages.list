@@ -8,7 +8,7 @@ language-pack-hu language-pack-gnome-hu
 fonts-noto-core fonts-noto-color-emoji fonts-dejavu-core
 
 # Hálózat
-network-manager wpasupplicant iw rfkill dnsmasq-base
+network-manager wpasupplicant iw rfkill dnsmasq-base systemd-resolved
 openssh-server ca-certificates curl wget
 
 # Grafika (X11, szoftveres renderelés)

@@ -1,0 +1,2 @@
+# A Samsung SCSC Wi-Fi driver segédinterfészei (a postmarketOS portból)
+SUBSYSTEM=="net", KERNEL=="swlan0|x0wlan0|p2p0", ENV{NM_UNMANAGED}="1"

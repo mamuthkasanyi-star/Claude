@@ -1,7 +1,7 @@
 # Mamuthka linux alapértelmezések (a @...@ értékeket a setup.sh tölti ki)
 
 [org.cinnamon.desktop.interface]
-scaling-factor=@UI_SCALE@
+scaling-factor=uint32 @UI_SCALE@
 gtk-theme='@GTK_THEME@'
 icon-theme='@ICON_THEME@'
 cursor-size=24

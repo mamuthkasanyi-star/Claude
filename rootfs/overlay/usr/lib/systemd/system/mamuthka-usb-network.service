@@ -1,6 +1,6 @@
 [Unit]
 Description=Mamuthka linux: USB-hálózat (ssh mamuthka@172.16.42.1)
-After=local-fs.target
+After=local-fs.target sys-kernel-config.mount
 Before=ssh.service
 
 [Service]

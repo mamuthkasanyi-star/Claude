@@ -52,14 +52,17 @@ echo "== Csomagok telepítése"
 # shellcheck disable=SC2046
 "${APT[@]}" install $(grep -v '^\s*#' /etc/mamuthka/packages.list | xargs) $DEVICE_PACKAGES
 
-if ! "${APT[@]}" install firefox firefox-locale-hu 2>/dev/null && ! "${APT[@]}" install firefox; then
+echo "== Flathub"
+flatpak remote-add --system --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo || true
+
+# Külön apt-hívás: a magyar nyelvi csomag hiánya ne vigye magával a Firefoxot.
+if "${APT[@]}" install firefox; then
+	"${APT[@]}" install firefox-locale-hu || echo "!! firefox-locale-hu nem érhető el (a Firefox angolul indul)"
+else
 	echo "!! A Firefox nem érhető el a PPA-ból erre az architektúrára, Flatpakból telepítem"
 	flatpak install -y --system --noninteractive flathub org.mozilla.firefox ||
 		echo "!! Flatpak Firefox telepítés sikertelen – első induláskor a Szoftverekből telepíthető"
 fi
-
-echo "== Flathub"
-flatpak remote-add --system --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo || true
 
 echo "== Rendszernév és márka"
 echo "$HOSTNAME" > /etc/hostname
@@ -134,6 +137,9 @@ rm -f /var/lib/dbus/machine-id
 if [ -e /usr/lib/systemd/system/systemd-resolved.service ]; then
 	ln -sf ../run/systemd/resolve/stub-resolv.conf /etc/resolv.conf
 else
+	# Üres fájl marad (nem törlés), hogy a NetworkManager megindulásáig se
+	# hiányozzon; a NetworkManager felülírja.
 	rm -f /etc/resolv.conf
+	: > /etc/resolv.conf
 fi
 echo "== setup.sh kész"
