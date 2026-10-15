@@ -1,0 +1,4 @@
+# A USB-hálózatot (172.16.42.1) a mamuthka-usb-network.service kezeli, ne a
+# NetworkManager. (udev-szabályok, mert a több conf.d fájlban megadott
+# [keyfile] unmanaged-devices nem egyesül, hanem felülírja egymást.)
+SUBSYSTEM=="net", KERNEL=="usb0|rndis0|ncm0", ENV{NM_UNMANAGED}="1"

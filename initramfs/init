@@ -1,0 +1,105 @@
+#!/bin/busybox sh
+# Mamuthka linux initramfs
+# 1. megkeresi a gyökér-fájlrendszert a címkéje alapján (ROOTFS_LABEL),
+# 2. átadja a vezérlést a rendszer /sbin/init-jének (systemd).
+# Ha ez nem sikerül, telnetet indít az USB-hálózaton hibakereséshez:
+#   telnet 172.16.42.1   (a gépen: ip addr add 172.16.42.2/24 dev usb0)
+
+/bin/busybox --install -s /bin
+export PATH=/bin:/sbin
+
+. /etc/mamuthka-initramfs.conf
+
+mount -t proc -o nodev,noexec,nosuid proc /proc
+mount -t sysfs -o nodev,noexec,nosuid sysfs /sys
+mount -t devtmpfs -o mode=0755,nosuid dev /dev
+mkdir -p /dev/pts /config /tmp /sysroot
+mount -t devpts devpts /dev/pts
+mount -t configfs configfs /config 2>/dev/null
+
+LOG=/tmp/init.log
+exec >"$LOG" 2>&1
+# A naplót a képernyőre (tty0) is kiírjuk.
+tail -f "$LOG" >/dev/tty0 2>/dev/null &
+TAIL_PID=$!
+
+echo "Mamuthka linux initramfs – $(uname -r)"
+
+. /lib/mamuthka/usbnet.sh
+. /lib/mamuthka/watchdog.sh
+
+# A watchdogokat a rendszer indulásáig mi pöcögtetjük (lásd watchdog.sh).
+start_watchdogs
+
+debug_shell() {
+	echo
+	echo "!!! $1"
+	echo "Hibakereső mód: telnet $USB_NET_IP (USB-kábelen)"
+	echo "Napló: /tmp/init.log; 10 perc múlva (vagy 'pkill sleep' után) újrapróbálja."
+	pidof telnetd >/dev/null || telnetd -b "$USB_NET_IP:23" -l /bin/sh
+	# Várakozás, majd újrapróbálkozás (pl. ha közben javították a partíciót).
+	sleep 600
+}
+
+find_root() {
+	# 1) címke alapján  2) a userdata partíció neve alapján
+	dev="$(findfs "LABEL=$ROOTFS_LABEL" 2>/dev/null)"
+	if [ -z "$dev" ]; then
+		for u in /sys/class/block/*/uevent; do
+			if grep -qix "PARTNAME=$ROOTFS_PARTNAME" "$u"; then
+				dev="/dev/$(sed -n 's/^DEVNAME=//p' "$u")"
+				break
+			fi
+		done
+	fi
+	echo "$dev"
+}
+
+# USB-hálózat mindig (mint a postmarketOS-ben); a rendszer ugyanezt használja tovább.
+setup_usb_network
+
+while :; do
+	# A UFS lemez néha csak pár másodperc után jelenik meg.
+	n=0
+	while [ $n -lt 20 ]; do
+		ROOTDEV="$(find_root)"
+		[ -n "$ROOTDEV" ] && [ -b "$ROOTDEV" ] && break
+		n=$((n + 1)); sleep 0.5
+	done
+	if [ -z "$ROOTDEV" ]; then
+		debug_shell "Nem találom a rendszerpartíciót (LABEL=$ROOTFS_LABEL)."
+		continue
+	fi
+	echo "Gyökér: $ROOTDEV"
+	if ! mount -t ext4 -o rw,noatime "$ROOTDEV" /sysroot; then
+		debug_shell "Nem sikerült csatolni: $ROOTDEV"
+		continue
+	fi
+	if [ ! -x /sysroot/sbin/init ] && [ ! -L /sysroot/sbin/init ]; then
+		umount /sysroot
+		debug_shell "A $ROOTDEV partíción nincs /sbin/init."
+		continue
+	fi
+	# Hibakeresés: ha a rendszeren létezik az /etc/mamuthka-debug fájl,
+	# indulás előtt 30 mp-ig telneten elérhető az initramfs.
+	if [ -e /sysroot/etc/mamuthka-debug ]; then
+		telnetd -b "$USB_NET_IP:23" -l /bin/sh
+		echo "Debug: 30 mp várakozás indulás előtt"
+		sleep 30
+	fi
+	break
+done
+
+cp "$LOG" /sysroot/var/log/mamuthka-initramfs.log 2>/dev/null
+kill "$TAIL_PID" 2>/dev/null
+# A USB-hálózati interfész marad; a DHCP-t a rendszerben a dnsmasq veszi át.
+# (A telnetd-t is leállítjuk, egy nyitott debug-session itt megszakad.)
+killall udhcpd telnetd 2>/dev/null
+stop_watchdogs
+umount /config 2>/dev/null
+
+umount /dev/pts
+mount --move /dev /sysroot/dev
+mount --move /proc /sysroot/proc
+mount --move /sys /sysroot/sys
+exec switch_root /sysroot /sbin/init

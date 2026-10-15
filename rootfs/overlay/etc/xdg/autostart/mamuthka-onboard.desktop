@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Onboard
+Comment=Érintőképernyős billentyűzet
+Exec=onboard
+OnlyShowIn=X-Cinnamon;
+X-GNOME-Autostart-Phase=Applications
+NoDisplay=true

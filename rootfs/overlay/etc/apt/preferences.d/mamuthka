@@ -1,0 +1,18 @@
+# Saját kernelt használunk: Ubuntu kernel ne kerüljön fel.
+Package: linux-image-* linux-generic* linux-headers-* linux-modules-* linux-firmware flash-kernel grub-*
+Pin: release a=*
+Pin-Priority: -1
+
+# A snap a 4.14-es Samsung kernelen nem működik megbízhatóan.
+Package: snapd
+Pin: release a=*
+Pin-Priority: -1
+
+# Firefox a Mozilla PPA-ból (nem snap)
+Package: firefox*
+Pin: release o=LP-PPA-mozillateam
+Pin-Priority: 1001
+
+Package: firefox*
+Pin: release o=Ubuntu
+Pin-Priority: -1

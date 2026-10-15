@@ -1,0 +1,518 @@
+#!/bin/sh
+# Mamuthka Recovery – főmenü és műveletek (busybox sh)
+# Telepítés Wi-Firől, javítás, mentés microSD-re.
+
+. /etc/mamuthka/recovery.conf
+# shellcheck disable=SC3040  # a busybox ash ismeri
+set -o pipefail 2>/dev/null
+
+GCP=/usr/libexec/gnu/cp     # GNU cp (xattr/capability megőrzéssel)
+GTAR=/usr/libexec/gnu/tar   # GNU tar (xattr/ACL)
+WORK=/tmp/mr
+mkdir -p "$WORK"
+
+# A busyboxban nincs mountpoint applet: a /proc/mounts alapján döntünk.
+is_mounted() { grep -qs " $1 " /proc/mounts; }
+
+log() { echo "[$(date +%T)] $*" >> /tmp/recovery.log; }
+msg() { rui msg "$1" "$2"; }
+status() { rui status "$1" "$2"; }
+
+# Hiba esetén üzenet; a napló végét is megmutatja.
+fail() {
+	log "HIBA: $1"
+	msg "Hiba" "$1\n\nRészletek: telnet $USB_NET_IP, majd: cat /tmp/recovery.log"
+	return 1
+}
+
+# ---------------------------------------------------------------- eszköz ---
+find_part() { # PARTNAME (kis/nagybetű nem számít) → /dev/sdXN
+	for u in /sys/class/block/*/uevent; do
+		if grep -qix "PARTNAME=$1" "$u"; then
+			echo "/dev/$(sed -n 's/^DEVNAME=//p' "$u")"
+			return 0
+		fi
+	done
+	return 1
+}
+
+detect_device() {
+	model="$(sed -n 's/.*androidboot\.em\.model=\([^ ]*\).*/\1/p' /proc/cmdline)"
+	[ -n "$model" ] || model="$(tr -d '\0' < /proc/device-tree/model 2>/dev/null)"
+	compat="$(tr '\0' ' ' < /proc/device-tree/compatible 2>/dev/null)"
+	DEV_ID=""
+	while read -r pat id tag name; do
+		case "$pat" in ''|'#'*) continue ;; esac
+		# shellcheck disable=SC2254
+		case "$model $compat" in
+			$pat) DEV_ID="$id"; DEV_TAG="$tag"; DEV_NAME="$(echo "$name" | tr _ ' ')"; break ;;
+		esac
+	done < /etc/mamuthka/devices.list
+	log "Eszköz: model='$model' compat='$compat' → ${DEV_ID:-ismeretlen}"
+	[ -n "$DEV_ID" ]
+}
+
+root_dev() { find_part "$ROOTFS_PARTNAME"; }
+
+mount_root() {
+	is_mounted /sysroot && return 0
+	dev="$(root_dev)" || { fail "Nem találom a(z) $ROOTFS_PARTNAME partíciót."; return 1; }
+	mount -t ext4 "$dev" /sysroot 2>/dev/null
+}
+
+umount_root() {
+	sync
+	for m in /sysroot/dev /sysroot/proc /sysroot/sys; do is_mounted "$m" && umount "$m"; done
+	is_mounted /sysroot && umount /sysroot
+	return 0
+}
+
+# Parancs futtatása a telepített rendszerben (/dev, /proc, /sys csatolva, hogy
+# a PAM/passwd naplózása és eszközkezelése működjön).
+in_root() {
+	for m in dev proc sys; do
+		is_mounted "/sysroot/$m" || mount --bind "/$m" "/sysroot/$m" 2>/dev/null
+	done
+	chroot /sysroot "$@"
+}
+
+installed() { mount_root && [ -e /sysroot/etc/os-release ] && grep -q "ID=$OS_ID" /sysroot/etc/os-release; }
+
+# ----------------------------------------------------------------- Wi-Fi ---
+wifi_iface() {
+	for i in wlan0 $(ls /sys/class/net); do
+		[ -d "/sys/class/net/$i/wireless" ] && { echo "$i"; return 0; }
+	done
+	return 1
+}
+
+wifi_online() {
+	ip route | grep -q '^default' && wget -q -T 8 --ca-certificate=/etc/ssl/certs/ca-certificates.crt --spider "https://api.github.com" 2>/dev/null
+}
+
+wifi_connect() { # SSID JELSZÓ
+	iface="$1"; ssid="$2"; psk="$3"
+	esc_ssid="$(printf '%s' "$ssid" | sed 's/\\/\\\\/g; s/"/\\"/g')"
+	esc_psk="$(printf '%s' "$psk" | sed 's/\\/\\\\/g; s/"/\\"/g')"
+	{
+		echo "ctrl_interface=/run/wpa_supplicant"
+		echo "network={"
+		echo "  ssid=\"$esc_ssid\""
+		echo "  scan_ssid=1"
+		if [ -n "$psk" ]; then echo "  psk=\"$esc_psk\""; else echo "  key_mgmt=NONE"; fi
+		echo "}"
+	} > "$WORK/wpa.conf"
+	killall wpa_supplicant udhcpc 2>/dev/null
+	wpa_supplicant -B -i "$iface" -D nl80211 -c "$WORK/wpa.conf" >> /tmp/recovery.log 2>&1
+	n=0
+	while [ $n -lt 30 ]; do
+		wpa_cli -p /run/wpa_supplicant -i "$iface" status 2>/dev/null | grep -q 'wpa_state=COMPLETED' && break
+		n=$((n + 1)); sleep 1
+	done
+	[ $n -lt 30 ] || return 1
+	udhcpc -i "$iface" -n -q -t 10 -s /usr/share/udhcpc/default.script >> /tmp/recovery.log 2>&1
+}
+
+# A telepített rendszer NetworkManager kapcsolataiból próbál csatlakozni.
+wifi_from_system() {
+	iface="$1"
+	installed || return 1
+	for f in /sysroot/etc/NetworkManager/system-connections/*.nmconnection; do
+		[ -f "$f" ] || continue
+		ssid="$(sed -n 's/^ssid=//p' "$f" | head -1)"
+		psk="$(sed -n 's/^psk=//p' "$f" | head -1)"
+		[ -n "$ssid" ] || continue
+		# Csak a nyílt és a WPA-PSK kapcsolatokat tudjuk a fájlból átvenni
+		# (SAE/EAP vagy agent által tárolt jelszó esetén nincs psk a fájlban).
+		km="$(sed -n 's/^key-mgmt=//p' "$f" | head -1)"
+		case "$km" in ''|none|wpa-psk) ;; *) continue ;; esac
+		[ "$km" = wpa-psk ] && [ -z "$psk" ] && continue
+		status "Wi-Fi" "Csatlakozás: $ssid…"
+		wifi_connect "$iface" "$ssid" "$psk" && wifi_online && return 0
+	done
+	return 1
+}
+
+ensure_wifi() {
+	wifi_online && return 0
+	iface="$(wifi_iface)"
+	if [ -z "$iface" ]; then
+		status "Wi-Fi" "Wi-Fi bekapcsolása…"
+		sleep 3
+		iface="$(wifi_iface)" || { fail "Nincs Wi-Fi eszköz (a firmware nem töltődött be?)."; return 1; }
+	fi
+	ip link set "$iface" up 2>>/tmp/recovery.log
+	wifi_from_system "$iface" && return 0
+
+	while :; do
+		status "Wi-Fi" "Hálózatok keresése…"
+		killall wpa_supplicant 2>/dev/null
+		echo "ctrl_interface=/run/wpa_supplicant" > "$WORK/scan.conf"
+		wpa_supplicant -B -i "$iface" -D nl80211 -c "$WORK/scan.conf" >> /tmp/recovery.log 2>&1
+		sleep 1
+		wpa_cli -p /run/wpa_supplicant -i "$iface" scan >/dev/null 2>&1
+		sleep 5
+		wpa_cli -p /run/wpa_supplicant -i "$iface" scan_results 2>/dev/null |
+			awk -F'\t' 'NR>1 && $5!="" {print $3"\t"$5}' | sort -rn | awk -F'\t' '!seen[$2]++ {print $2}' |
+			head -10 > "$WORK/ssids"
+		set --
+		while IFS= read -r s; do set -- "$@" "$s"; done < "$WORK/ssids"
+		sel="$(rui menu "Válassz Wi-Fi hálózatot" "$@" "Rejtett hálózat…" "Újrakeresés" "Mégse")"
+		cnt=$#
+		if [ "$sel" -lt "$cnt" ]; then
+			eval "ssid=\${$((sel + 1))}"
+		elif [ "$sel" -eq "$cnt" ]; then
+			ssid="$(rui input "Hálózat neve (SSID)")"
+		elif [ "$sel" -eq $((cnt + 1)) ]; then
+			continue
+		else
+			return 1
+		fi
+		psk="$(rui input "Jelszó: $ssid" --password)"
+		status "Wi-Fi" "Csatlakozás: $ssid…"
+		if wifi_connect "$iface" "$ssid" "$psk" && wifi_online; then
+			return 0
+		fi
+		msg "Wi-Fi" "Nem sikerült csatlakozni ($ssid).\nEllenőrizd a jelszót."
+	done
+}
+
+# ------------------------------------------------------------- letöltés ---
+REL_URL() { echo "https://github.com/$RELEASE_REPO/releases/download/$DEV_TAG/$1"; }
+
+fetch() { # név → $WORK/név
+	wget -q -T 30 --ca-certificate=/etc/ssl/certs/ca-certificates.crt -O "$WORK/$1" "$(REL_URL "$1")"
+}
+
+# A kiadás leíróinak letöltése: manifest.txt (fájl méret), SHA256SUMS
+fetch_meta() {
+	status "Letöltés" "Kiadás adatai: $DEV_TAG"
+	fetch manifest.txt && fetch SHA256SUMS || { fail "Nem érem el a kiadást ($DEV_TAG)."; return 1; }
+	ROOT_SIZE="$(awk '$1=="rootfs.img"{print $2}' "$WORK/manifest.txt")"
+	ROOT_SHA="$(awk '$2=="rootfs.img"{print $1}' "$WORK/SHA256SUMS")"
+	PARTS="$(awk '$1 ~ /^rootfs\.img\.zst/ {print $1}' "$WORK/manifest.txt" | sort)"
+	VERSION="$(awk '$1=="version"{print $2}' "$WORK/manifest.txt")"
+	[ -n "$ROOT_SIZE" ] && [ -n "$ROOT_SHA" ] && [ -n "$PARTS" ] || { fail "Hibás manifest.txt"; return 1; }
+}
+
+# A rendszerkép letöltése és kicsomagolása a megadott célba (eszköz vagy fájl).
+# A SHA256 ellenőrzés menet közben történik.
+stream_rootfs() { # cél
+	rm -f "$WORK/sha.fifo" "$WORK/sha.out"
+	mkfifo "$WORK/sha.fifo"
+	sha256sum < "$WORK/sha.fifo" > "$WORK/sha.out" &
+	shapid=$!
+	(for p in $PARTS; do wget -q -T 60 --ca-certificate=/etc/ssl/certs/ca-certificates.crt -O - "$(REL_URL "$p")" || exit 1; done) |
+		zstd -d -c | tee "$WORK/sha.fifo" | rui pipe "Rendszer letöltése és telepítése" "$ROOT_SIZE" |
+		dd of="$1" bs=4M 2>>/tmp/recovery.log
+	rc=$?
+	wait $shapid
+	sync
+	got="$(cut -d' ' -f1 "$WORK/sha.out")"
+	log "stream rc=$rc sha=$got várt=$ROOT_SHA"
+	[ $rc -eq 0 ] && [ "$got" = "$ROOT_SHA" ]
+}
+
+install_boot() {
+	status "Telepítés" "Kernel (boot.img) letöltése…"
+	fetch boot.img || { fail "boot.img letöltése sikertelen"; return 1; }
+	want="$(awk '$2=="boot.img"{print $1}' "$WORK/SHA256SUMS")"
+	got="$(sha256sum "$WORK/boot.img" | cut -d' ' -f1)"
+	[ "$want" = "$got" ] || { fail "boot.img ellenőrzőösszege hibás"; return 1; }
+	bdev="$(find_part boot)" || { fail "Nincs boot partíció"; return 1; }
+	dd if="$WORK/boot.img" of="$bdev" bs=1M 2>>/tmp/recovery.log && sync
+	# Visszaolvasás
+	n=$(stat -c%s "$WORK/boot.img")
+	[ "$(head -c "$n" "$bdev" | sha256sum | cut -d' ' -f1)" = "$want" ] || { fail "boot partíció írása hibás"; return 1; }
+	rm -f "$WORK/boot.img"
+}
+
+# Fájlok, amelyek újratelepítéskor megmaradnak (felhasználók, jelszavak, Wi-Fi…)
+KEEP="etc/passwd etc/shadow etc/group etc/gshadow etc/subuid etc/subgid etc/hostname
+etc/NetworkManager/system-connections etc/ssh/ssh_host_ed25519_key etc/ssh/ssh_host_ed25519_key.pub
+etc/ssh/ssh_host_rsa_key etc/ssh/ssh_host_rsa_key.pub etc/ssh/ssh_host_ecdsa_key etc/ssh/ssh_host_ecdsa_key.pub
+etc/machine-id var/lib/mamuthka var/lib/flatpak etc/mamuthka-debug"
+
+do_install() {
+	detect_device || { fail "Ismeretlen eszköz – nincs hozzá Mamuthka linux kiadás."; return 1; }
+	mode=clean
+	if installed; then
+		sel="$(rui menu "$DEV_NAME – telepítés" \
+			"Újratelepítés (saját fájlok megmaradnak)" \
+			"Tiszta telepítés (MINDEN törlődik)" \
+			"Mégse")"
+		case "$sel" in 0) mode=keep ;; 1) mode=clean ;; *) return 0 ;; esac
+	fi
+	if [ $mode = clean ]; then
+		rui ask "Tiszta telepítés" "Felismert eszköz: $DEV_NAME\n\nA telefon adatpartíciója TELJESEN törlődik, majd letöltöm és telepítem a Mamuthka linuxot.\n\nFolytatod?" || return 0
+	fi
+	ensure_wifi || return 1
+	fetch_meta || return 1
+	rootdev="$(root_dev)" || { fail "Nincs $ROOTFS_PARTNAME partíció"; return 1; }
+
+	if [ $mode = clean ]; then
+		umount_root
+		stream_rootfs "$rootdev" || { fail "A letöltés vagy az ellenőrzés sikertelen. Próbáld újra."; return 1; }
+		status "Telepítés" "Fájlrendszer ellenőrzése…"
+		e2fsck -fy "$rootdev" >> /tmp/recovery.log 2>&1
+		status "Telepítés" "Fájlrendszer kiterjesztése a teljes partícióra…"
+		resize2fs "$rootdev" >> /tmp/recovery.log 2>&1 || log "resize2fs sikertelen (az első indulás pótolja)"
+	else
+		mount_root || return 1
+		free_kb=$(df -k /sysroot | awk 'NR==2{print $4}')
+		keep_kb=0
+		for k in $KEEP; do
+			[ -e "/sysroot/$k" ] && keep_kb=$((keep_kb + $(du -sk "/sysroot/$k" | cut -f1)))
+		done
+		[ $((free_kb / 1024)) -gt $((ROOT_SIZE / 1048576 + keep_kb / 1024 + 1024)) ] ||
+			{ fail "Nincs elég szabad hely az újratelepítéshez."; return 1; }
+		img=/sysroot/.mamuthka-new.img
+		rm -f "$img"
+		stream_rootfs "$img" || { rm -f "$img"; fail "A letöltés vagy az ellenőrzés sikertelen."; return 1; }
+		status "Újratelepítés" "Beállítások mentése…"
+		keep=/sysroot/.mamuthka-keep
+		rm -rf "$keep"; mkdir -p "$keep"
+		for k in $KEEP; do
+			[ -e "/sysroot/$k" ] || continue
+			mkdir -p "$keep/$(dirname "$k")"
+			$GCP -a "/sysroot/$k" "$keep/$k"
+		done
+		mount -o loop,ro "$img" /mnt/new || { fail "Az új rendszerkép nem csatolható."; return 1; }
+		status "Újratelepítés" "Régi rendszer törlése (a /home megmarad)…"
+		for e in /sysroot/* /sysroot/.[!.]*; do
+			case "${e#/sysroot/}" in
+				home|lost+found|.mamuthka-new.img|.mamuthka-keep|'.[!.]*'|'*') ;;
+				*) rm -rf "$e" ;;
+			esac
+		done
+		status "Újratelepítés" "Új rendszer másolása…"
+		for e in /mnt/new/* /mnt/new/.[!.]*; do
+			case "${e#/mnt/new/}" in home|lost+found|'.[!.]*'|'*') continue ;; esac
+			$GCP -a "$e" /sysroot/ || { umount /mnt/new; fail "Másolási hiba: $e"; return 1; }
+		done
+		# Új felhasználói alapfájlok, ha a /home üres lenne
+		[ -n "$(ls /sysroot/home 2>/dev/null)" ] || $GCP -a /mnt/new/home/. /sysroot/home/
+		umount /mnt/new
+		rm -f "$img"
+		status "Újratelepítés" "Beállítások visszaállítása…"
+		(cd "$keep" && for k in $KEEP; do
+			[ -e "$k" ] || continue
+			rm -rf "/sysroot/$k"; mkdir -p "/sysroot/$(dirname "$k")"
+			$GCP -a "$k" "/sysroot/$k"
+		done)
+		rm -rf "$keep"
+		umount_root
+	fi
+	install_boot || return 1
+	msg "Kész!" "A Mamuthka linux ${VERSION:-} telepítve: $DEV_NAME.\n\nAz Újraindítás után elindul a rendszer.\nKezdő jelszó (tiszta telepítésnél): 1234"
+}
+
+# --------------------------------------------------------------- javítás ---
+do_fsck() {
+	umount_root
+	dev="$(root_dev)" || { fail "Nincs rendszerpartíció"; return 1; }
+	status "Fájlrendszer-javítás" "Ellenőrzés: $dev…"
+	e2fsck -fy "$dev" > "$WORK/fsck.log" 2>&1
+	rc=$?
+	cat "$WORK/fsck.log" >> /tmp/recovery.log
+	case $rc in
+		0) msg "Fájlrendszer-javítás" "Nem találtam hibát." ;;
+		1|2|3) msg "Fájlrendszer-javítás" "A hibákat kijavítottam.\n\n$(tail -3 "$WORK/fsck.log")" ;;
+		*) fail "Az e2fsck nem tudta kijavítani (kód: $rc)." ;;
+	esac
+}
+
+pick_user() {
+	set --
+	for h in /sysroot/home/*; do [ -d "$h" ] && set -- "$@" "${h##*/}"; done
+	[ $# -gt 0 ] || { fail "Nincs felhasználó a rendszeren."; return 1; }
+	sel="$(rui menu "Melyik felhasználó?" "$@" "Mégse")"
+	[ "$sel" -lt $# ] || return 1
+	eval "PICKED=\${$((sel + 1))}"
+}
+
+do_reset_desktop() {
+	installed || { fail "Nincs telepített Mamuthka linux."; return 1; }
+	pick_user || return 0
+	h="/sysroot/home/$PICKED"
+	b="$h/.mamuthka-asztal-mentes-$(date +%Y%m%d-%H%M)"
+	rui ask "Asztal visszaállítása" "$PICKED Cinnamon-beállításai alaphelyzetbe állnak.\nA régi beállítások ide kerülnek:\n${b#/sysroot}\n\nFolytatod?" || return 0
+	mkdir -p "$b"
+	for d in .cinnamon .config/cinnamon .config/cinnamon-session .local/share/cinnamon .config/dconf .config/monitors.xml .config/autostart; do
+		[ -e "$h/$d" ] && mkdir -p "$b/$(dirname "$d")" && mv "$h/$d" "$b/$d"
+	done
+	chown -R "$(stat -c %u:%g "$h")" "$b"
+	umount_root
+	msg "Asztal visszaállítása" "Kész. A következő bejelentkezéskor alapértelmezett asztal indul."
+}
+
+do_password() {
+	installed || { fail "Nincs telepített Mamuthka linux."; return 1; }
+	pick_user || return 0
+	p1="$(rui input "Új jelszó: $PICKED" --password)"
+	[ -n "$p1" ] || return 0
+	p2="$(rui input "Új jelszó még egyszer" --password)"
+	[ "$p1" = "$p2" ] || { msg "Jelszó" "A két jelszó nem egyezik."; return 0; }
+	if printf '%s:%s\n' "$PICKED" "$p1" | in_root /usr/sbin/chpasswd 2>>/tmp/recovery.log; then
+		in_root /usr/bin/passwd -u "$PICKED" >/dev/null 2>&1
+		umount_root
+		msg "Jelszó" "$PICKED jelszava megváltozott."
+	else
+		fail "A jelszó beállítása nem sikerült."
+	fi
+}
+
+menu_repair() {
+	while :; do
+		sel="$(rui menu "Javítás" \
+			"Fájlrendszer ellenőrzése és javítása" \
+			"Asztal (Cinnamon) visszaállítása" \
+			"Jelszó visszaállítása" \
+			"Rendszer újratelepítése (fájlok megmaradnak)" \
+			"Vissza")"
+		case "$sel" in
+			0) do_fsck ;;
+			1) do_reset_desktop ;;
+			2) do_password ;;
+			3) do_install ;;
+			*) return 0 ;;
+		esac
+	done
+}
+
+# ---------------------------------------------------------------- mentés ---
+mount_sd() {
+	is_mounted /mnt/sd && return 0
+	for d in /dev/mmcblk*p1 /dev/mmcblk[0-9]; do
+		[ -b "$d" ] || continue
+		for t in exfat sdfat vfat ext4; do
+			mount -t "$t" "$d" /mnt/sd 2>/dev/null && { log "microSD: $d ($t)"; return 0; }
+		done
+	done
+	fail "Nem találok microSD kártyát (vagy nem olvasható)."
+}
+
+do_backup() { # home|full
+	mount_root || return 1
+	mount_sd || return 1
+	name="$1-$(date +%Y%m%d-%H%M)"
+	dir=/mnt/sd/MamuthkaBackup
+	mkdir -p "$dir"
+	if [ "$1" = home ]; then
+		src_args="home"; what="Saját fájlok (/home)"
+	else
+		src_args="."; what="Teljes rendszer"
+	fi
+	used_kb=$(du -skx /sysroot/$src_args 2>/dev/null | cut -f1)
+	free_kb=$(df -k /mnt/sd | awk 'NR==2{print $4}')
+	[ "$free_kb" -gt $((used_kb / 2)) ] || { fail "Kevés hely a kártyán (kell kb. $((used_kb / 2048)) MiB)."; return 1; }
+	rui ask "Mentés" "$what mentése a microSD-re:\nMamuthkaBackup/$name\n\nFolytatod?" || return 0
+	# FAT32-n 4 GiB a fájlméret-korlát, ezért 3900 MiB-os részek.
+	$GTAR -C /sysroot --xattrs --acls --numeric-owner --one-file-system \
+		--exclude=./.mamuthka-new.img --exclude=./.mamuthka-keep -cpf - $src_args 2>>/tmp/recovery.log |
+		rui pipe "Mentés: $what" $((used_kb * 1024)) | zstd -T0 -3 -q -c |
+		split -b 3900m - "$dir/$name.tar.zst.part"
+	rc=$?
+	sync
+	umount /mnt/sd
+	[ $rc -eq 0 ] || { fail "A mentés nem sikerült."; return 1; }
+	msg "Mentés" "Kész: MamuthkaBackup/$name"
+}
+
+do_restore() {
+	mount_sd || return 1
+	set --
+	for f in /mnt/sd/MamuthkaBackup/*.tar.zst.partaa; do
+		[ -f "$f" ] || continue
+		b="${f##*/}"; set -- "$@" "${b%.tar.zst.partaa}"
+	done
+	[ $# -gt 0 ] || { umount /mnt/sd; fail "Nincs mentés a kártyán (MamuthkaBackup mappa)."; return 1; }
+	sel="$(rui menu "Melyik mentést állítsam vissza?" "$@" "Mégse")"
+	[ "$sel" -lt $# ] || { umount /mnt/sd; return 0; }
+	eval "b=\${$((sel + 1))}"
+	dev="$(root_dev)" || return 1
+	case "$b" in
+		home-*)
+			rui ask "Visszaállítás" "A jelenlegi /home tartalma törlődik, és a(z) $b mentés kerül a helyére.\n\nFolytatod?" || return 0
+			mount_root || return 1
+			rm -rf /sysroot/home/*
+			;;
+		*)
+			rui ask "Visszaállítás" "A TELJES rendszer törlődik, és a(z) $b mentés kerül a helyére.\n\nFolytatod?" || return 0
+			umount_root
+			status "Visszaállítás" "Formázás…"
+			mkfs.ext4 -q -F -L "$ROOTFS_LABEL" -O ^orphan_file,^metadata_csum_seed "$dev" >> /tmp/recovery.log 2>&1 ||
+				{ fail "Formázási hiba"; return 1; }
+			mount_root || return 1
+			;;
+	esac
+	total=0
+	for f in /mnt/sd/MamuthkaBackup/"$b".tar.zst.part*; do total=$((total + $(stat -c %s "$f"))); done
+	cat /mnt/sd/MamuthkaBackup/"$b".tar.zst.part* | rui pipe "Visszaállítás: $b" "$total" |
+		zstd -d -c | $GTAR -C /sysroot --xattrs --acls --numeric-owner -xpf - 2>>/tmp/recovery.log
+	rc=$?
+	umount_root; umount /mnt/sd
+	[ $rc -eq 0 ] && msg "Visszaállítás" "Kész: $b" || fail "A visszaállítás nem sikerült."
+}
+
+menu_backup() {
+	while :; do
+		sel="$(rui menu "Mentés / visszaállítás (microSD)" \
+			"Saját fájlok (/home) mentése" \
+			"Teljes rendszer mentése" \
+			"Visszaállítás mentésből" \
+			"Vissza")"
+		case "$sel" in
+			0) do_backup home ;;
+			1) do_backup full ;;
+			2) do_restore ;;
+			*) return 0 ;;
+		esac
+	done
+}
+
+menu_power() {
+	sel="$(rui menu "Újraindítás" "Rendszer indítása" "Recovery újraindítása" "Letöltés mód (Heimdall/Odin)" "Kikapcsolás" "Vissza")"
+	umount_root; is_mounted /mnt/sd && umount /mnt/sd
+	case "$sel" in
+		0) rui reboot ;;
+		1) rui reboot recovery ;;
+		2) rui reboot download ;;
+		3) rui reboot poweroff ;;
+	esac
+}
+
+# --------------------------------------------------------- diagnosztika ---
+show_diag() {
+	D=/tmp/elozo-inditas
+	t="Előző újraindulás oka: $(head -c 60 "$D/proc_reset_reason" 2>/dev/null | tr '\n' ' ')"
+	t="$t\n$(head -c 300 "$D/proc_auto_comment" 2>/dev/null | tr '\n' ' ')"
+	t="$t\n\nWatchdog: $(pidof watchdog >/dev/null && echo fut || echo NEM fut)"
+	t="$t\nUSB-vezérlő: $(ls /sys/class/udc 2>/dev/null | head -1)"
+	t="$t\n\nNapló vége:\n$(grep -v '^ *$' /tmp/recovery.log | tail -n 12 | cut -c1-60)"
+	msg "Diagnosztika" "$t"
+}
+
+# ------------------------------------------------------------- főmenü ---
+detect_device
+head="Mamuthka linux telepítése"
+installed && head="Mamuthka linux telepítése / frissítése"
+umount_root
+while :; do
+	sel="$(rui menu "${DEV_NAME:-Ismeretlen eszköz} · USB: $USB_NET_IP" \
+		"$head" \
+		"Javítás" \
+		"Mentés / visszaállítás (microSD)" \
+		"Wi-Fi beállítása" \
+		"Újraindítás / kikapcsolás" \
+		"Diagnosztika (napló)")"
+	case "$sel" in
+		0) do_install ;;
+		1) menu_repair ;;
+		2) menu_backup ;;
+		3) ensure_wifi && msg "Wi-Fi" "Csatlakozva.\n$(ip -4 addr show | awk '/inet / && !/127\./ {print $2}')" ;;
+		4) menu_power ;;
+		5) show_diag ;;
+	esac
+	umount_root
+done

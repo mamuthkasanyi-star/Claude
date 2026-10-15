@@ -1,0 +1,8 @@
+[Plymouth Theme]
+Name=Mamuthka linux
+Description=Mamuthka linux boot-logó
+ModuleName=script
+
+[script]
+ImageDir=/usr/share/plymouth/themes/mamuthka
+ScriptFile=/usr/share/plymouth/themes/mamuthka/mamuthka.script

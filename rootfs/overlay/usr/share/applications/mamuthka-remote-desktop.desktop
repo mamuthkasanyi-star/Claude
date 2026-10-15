@@ -1,0 +1,7 @@
+[Desktop Entry]
+Type=Application
+Name=Távoli asztal (be/ki)
+Comment=A telefon asztalának megosztása VNC-n (PC-ről, tévéről)
+Exec=mamuthka-remote-desktop
+Icon=preferences-desktop-remote-desktop
+Categories=Network;RemoteAccess;

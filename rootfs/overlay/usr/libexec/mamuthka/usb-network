@@ -1,0 +1,19 @@
+#!/bin/bash
+# Az initramfs már beállította a USB-gadgetet (NCM vagy RNDIS) és az IP-t.
+# Itt csak megkeressük az interfészt, és DHCP-t indítunk a gép felé.
+set -u
+iface=""
+for i in $(cat /sys/kernel/config/usb_gadget/g1/functions/*/ifname 2>/dev/null) usb0 rndis0 ncm0; do
+	[ -e "/sys/class/net/$i" ] && { iface="$i"; break; }
+done
+if [ -z "$iface" ]; then
+	echo "Nincs USB-hálózati interfész (a gadget nem jött létre)."
+	exit 1
+fi
+ip link set "$iface" up
+ip addr show dev "$iface" | grep -q "inet $USB_NET_IP/" || ip addr add "$USB_NET_IP/24" dev "$iface"
+echo "USB-hálózat: $iface, $USB_NET_IP"
+exec dnsmasq --keep-in-foreground --no-resolv --no-hosts --port=0 \
+	--interface="$iface" --bind-interfaces --leasefile-ro \
+	--dhcp-range="$USB_NET_CLIENT_IP,$USB_NET_CLIENT_IP,255.255.255.0,1h" \
+	--dhcp-option=3 --dhcp-option=6

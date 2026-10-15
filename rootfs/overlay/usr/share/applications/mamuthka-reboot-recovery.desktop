@@ -1,0 +1,7 @@
+[Desktop Entry]
+Type=Application
+Name=Újraindítás: Mamuthka Recovery
+Comment=Javítás, újratelepítés, mentés microSD-re
+Exec=pkexec /usr/bin/systemctl reboot --reboot-argument=recovery
+Icon=system-reboot
+Categories=System;

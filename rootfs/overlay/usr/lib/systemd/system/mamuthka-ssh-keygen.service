@@ -1,0 +1,14 @@
+[Unit]
+Description=Mamuthka linux: SSH kulcsok generálása első indításkor
+ConditionPathExists=!/etc/ssh/ssh_host_ed25519_key
+# Csak az ssh.service elé: a Before=ssh.socket rendezési hurkot okozna
+# (ssh.socket → sockets.target → basic.target → ez a szolgáltatás). A socket
+# korán figyel, de az első kapcsolatnál induló sshd megvárja a kulcsokat.
+Before=ssh.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/ssh-keygen -A
+
+[Install]
+WantedBy=multi-user.target

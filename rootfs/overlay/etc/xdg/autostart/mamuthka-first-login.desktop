@@ -1,0 +1,6 @@
+[Desktop Entry]
+Type=Application
+Name=Mamuthka első indítás
+Exec=/usr/libexec/mamuthka/first-login
+OnlyShowIn=X-Cinnamon;
+NoDisplay=true
