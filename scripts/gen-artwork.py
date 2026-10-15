@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Mamuthka linux grafikák: háttérkép és boot-logó.
 
-A forrásképek az assets/ mappában vannak (wallpaper-portrait.jpg,
-wallpaper-landscape.jpg). A boot-logó a mamutos rész kivágása az álló képből.
+Háttérkép: fekete, közepén kicsi, rajzolt pingvinkörvonal élénkpiros derengéssel.
+Boot-logó és ikon: a mamutos rész kivágása az assets/wallpaper-portrait.jpg-ből
+(a mamutos képek változatlanul az assets/ mappában vannak).
 
 Használat: gen-artwork.py <rootfs> <képernyő-szélesség> <képernyő-magasság>
 Függőség: python3-pil (Pillow)
@@ -10,7 +11,7 @@ Függőség: python3-pil (Pillow)
 import os
 import sys
 
-from PIL import Image, ImageDraw
+from PIL import Image, ImageDraw, ImageFilter
 
 ASSETS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "assets")
 
@@ -22,6 +23,42 @@ def fit_black(img, w, h):
     out = Image.new("RGB", (w, h), (0, 0, 0))
     out.paste(img, ((w - img.width) // 2, (h - img.height) // 2))
     return out
+
+
+def penguin_lines(w, h, cx, cy, s, lw):
+    """Pingvin vonalrajz maszkként: egybefüggő sziluett-körvonal + has, szemek, csőr."""
+    pw = s * 0.72
+    sil = Image.new("L", (w, h), 0)
+    d = ImageDraw.Draw(sil)
+    def box(x0, y0, x1, y1):
+        return [cx + x0 * pw, cy + y0 * s, cx + x1 * pw, cy + y1 * s]
+    for b in (box(-0.50, -0.25, 0.50, 0.48), box(-0.33, -0.50, 0.33, -0.04),
+              box(-0.40, 0.40, 0.00, 0.54), box(0.00, 0.40, 0.40, 0.54)):
+        d.ellipse(b, fill=255)
+    # körvonal = sziluett mínusz a beljebb húzott sziluett
+    inner = sil.filter(ImageFilter.MinFilter(lw * 2 + 1))
+    out = Image.new("L", (w, h), 0)
+    out.paste(255, mask=sil)
+    out.paste(0, mask=inner)
+    d = ImageDraw.Draw(out)
+    d.ellipse(box(-0.30, 0.00, 0.30, 0.40), outline=255, width=lw)             # has
+    for dx in (-0.12, 0.12):                                                   # szemek
+        d.ellipse(box(dx - 0.06, -0.36, dx + 0.06, -0.24), outline=255, width=lw)
+    d.polygon([(cx - pw * 0.11, cy - s * 0.17), (cx + pw * 0.11, cy - s * 0.17),
+               (cx, cy - s * 0.08)], outline=255, width=lw)                    # csőr
+    return out
+
+
+def wallpaper(w, h):
+    """Fekete háttér, kicsi pingvinkörvonal élénkpiros derengéssel."""
+    s = min(w, h) * 0.20
+    lw = max(3, int(s / 80))
+    m = penguin_lines(w, h, w / 2, h * 0.45, s, lw)
+    glow = m.filter(ImageFilter.MaxFilter(5)).filter(ImageFilter.GaussianBlur(s / 14))
+    img = Image.new("RGB", (w, h), (0, 0, 0))
+    img.paste((255, 0, 0), mask=Image.eval(glow, lambda v: min(255, int(v * 1.6))))
+    img.paste((255, 70, 70), mask=m)
+    return img
 
 
 def logo(portrait, width):
@@ -50,8 +87,11 @@ def main():
     portrait = Image.open(os.path.join(ASSETS, "wallpaper-portrait.jpg")).convert("RGB")
     landscape = Image.open(os.path.join(ASSETS, "wallpaper-landscape.jpg")).convert("RGB")
 
-    fit_black(portrait, w, h).save(os.path.join(bg, "wallpaper.png"))
-    fit_black(landscape, max(w, h), min(w, h)).save(os.path.join(bg, "wallpaper-landscape.png"))
+    wallpaper(w, h).save(os.path.join(bg, "wallpaper.png"))
+    wallpaper(max(w, h), min(w, h)).save(os.path.join(bg, "wallpaper-landscape.png"))
+    # A mamutos képek is választhatók a Háttérkép-beállításokban.
+    fit_black(portrait, w, h).save(os.path.join(bg, "mamuthka-portrait.png"))
+    fit_black(landscape, max(w, h), min(w, h)).save(os.path.join(bg, "mamuthka-landscape.png"))
     logo(portrait, min(w, h) * 3 // 4).save(os.path.join(ply, "logo.png"))
     dot(max(8, min(w, h) // 60)).save(os.path.join(ply, "dot.png"))
 

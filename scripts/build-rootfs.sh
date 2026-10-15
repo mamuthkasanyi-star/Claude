@@ -47,6 +47,12 @@ fi
 log "Fájlok másolása (közös + eszköz overlay)"
 cp -a "$ROOT_DIR/rootfs/overlay/." "$ROOTFS/"
 [ -d "$DEVICE_DIR/overlay" ] && cp -a "$DEVICE_DIR/overlay/." "$ROOTFS/"
+# A saját fájljaid (docs/pmos-javitasok.md, 1. pont) – ezek írnak felül mindent.
+if [ -d "$ROOT_DIR/sajat/rootfs" ]; then
+	log "Saját fájlok: sajat/rootfs"
+	cp -a "$ROOT_DIR/sajat/rootfs/." "$ROOTFS/"
+	rm -f "$ROOTFS/.gitkeep"
+fi
 mkdir -p "$ROOTFS/etc/mamuthka"
 cp "$ROOT_DIR/rootfs/packages.list" "$ROOTFS/etc/mamuthka/packages.list"
 cat > "$ROOTFS/etc/mamuthka/device.env" <<EOF

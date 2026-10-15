@@ -37,13 +37,14 @@
 #include <unistd.h>
 
 /* ---------- színek ---------- */
-#define C_BG      0x0a0a0c
-#define C_TITLE   0xe02828
-#define C_TEXT    0xe6e6ea
-#define C_DIM     0x8a8a96
-#define C_BTN     0x1c1c22
-#define C_BTN_SEL 0x8c1414
-#define C_BORDER  0x3a3a44
+#define C_BG      0x0b1838   /* sötétkék háttér */
+#define C_TITLE   0xff2a2a
+#define C_TEXT    0xeef0f6
+#define C_DIM     0x8090b0
+#define C_BTN     0x000000   /* fekete gombok */
+#define C_BTN_SEL 0x000000
+#define C_BORDER  0x1a1a1a
+#define C_GLOW    0xff1010   /* a gombok alól kiszűrődő piros fény */
 
 /* ---------- framebuffer ---------- */
 static int fb_fd = -1;
@@ -117,6 +118,31 @@ static void rect(int x, int y, int w, int h, uint32_t c)
 	if (y + h > H) h = H - y;
 	for (j = 0; j < h; j++)
 		for (i = 0; i < w; i++) back[(size_t)(y + j) * W + x + i] = c;
+}
+
+static uint32_t blend(uint32_t a, uint32_t b, int t) /* t: 0..256, b súlya */
+{
+	uint32_t r = (((a >> 16) & 0xff) * (256 - t) + ((b >> 16) & 0xff) * t) >> 8;
+	uint32_t g = (((a >> 8) & 0xff) * (256 - t) + ((b >> 8) & 0xff) * t) >> 8;
+	uint32_t bl = ((a & 0xff) * (256 - t) + (b & 0xff) * t) >> 8;
+	return r << 16 | g << 8 | bl;
+}
+
+/* Piros fény a gomb alatt: lefelé és oldalra halványuló sáv. */
+static void glow_under(int x, int y, int w, int h, int strength)
+{
+	int spread = h / 2, i, j;
+	for (j = 0; j < spread; j++) {
+		int t = strength * (spread - j) / spread;
+		int yy = y + h - spread / 3 + j;
+		if (yy < 0 || yy >= H) continue;
+		for (i = x - spread / 2; i < x + w + spread / 2; i++) {
+			int edge = i < x ? x - i : (i >= x + w ? i - (x + w) + 1 : 0);
+			int tt = t * (spread / 2 - edge) / (spread / 2);
+			if (i < 0 || i >= W || tt <= 0) continue;
+			back[(size_t)yy * W + i] = blend(back[(size_t)yy * W + i], C_GLOW, tt);
+		}
+	}
 }
 
 static void frame(int x, int y, int w, int h, uint32_t fill, uint32_t border)
@@ -345,6 +371,7 @@ struct button { int x, y, w, h; const char *label; };
 
 static void draw_button(struct button *b, int sel)
 {
+	glow_under(b->x, b->y, b->w, b->h, sel ? 230 : 130);
 	frame(b->x, b->y, b->w, b->h, sel ? C_BTN_SEL : C_BTN, sel ? C_TITLE : C_BORDER);
 	draw_text(b->x + CW, b->y + (b->h - CH) / 2, b->label, C_TEXT, scale);
 }
