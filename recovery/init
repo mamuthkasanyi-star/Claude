@@ -19,6 +19,12 @@ exec >/tmp/recovery.log 2>&1
 echo "Mamuthka Recovery – $(uname -r)"
 cat /proc/cmdline
 
+# A szöveges konzol (fbcon) ne rajzoljon a felületre.
+dmesg -n 1
+for v in /sys/class/vtconsole/vtcon*/bind; do
+	grep -q "frame buffer" "${v%/bind}/name" 2>/dev/null && echo 0 > "$v"
+done
+
 rui status "Indítás…" "USB-hálózat: telnet $USB_NET_IP" &
 setup_usb_network
 # A recovery-ben a hibakereső shell mindig elérhető USB-kábelen.
