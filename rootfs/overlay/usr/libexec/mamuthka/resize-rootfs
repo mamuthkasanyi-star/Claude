@@ -1,0 +1,8 @@
+#!/bin/sh
+# Az ext4 rendszer online kiterjesztése a teljes partícióra (első indításkor).
+set -e
+dev="$(findmnt -n -o SOURCE /)"
+echo "Kiterjesztés: $dev"
+resize2fs "$dev"
+mkdir -p /var/lib/mamuthka
+touch /var/lib/mamuthka/rootfs-resized

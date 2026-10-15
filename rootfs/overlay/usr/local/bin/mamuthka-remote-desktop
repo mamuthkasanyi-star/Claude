@@ -1,0 +1,19 @@
+#!/bin/bash
+# Távoli asztal (VNC) be/ki. A telefon képernyője bármely VNC-klienssel
+# (pl. RealVNC Viewer, TigerVNC – Windowson is) elérhető: <telefon IP>:5900
+PASSFILE="$HOME/.config/mamuthka/vnc.passwd"
+if pgrep -u "$USER" -x x11vnc >/dev/null; then
+	pkill -u "$USER" -x x11vnc
+	notify-send -i video-display "Távoli asztal" "Kikapcsolva"
+	exit 0
+fi
+if [ ! -s "$PASSFILE" ]; then
+	pw="$(zenity --password --title="Távoli asztal jelszava (legalább 6 karakter)")" || exit 1
+	[ "${#pw}" -ge 6 ] || { zenity --error --text="Túl rövid jelszó."; exit 1; }
+	mkdir -p "$(dirname "$PASSFILE")"
+	x11vnc -storepasswd "$pw" "$PASSFILE" >/dev/null 2>&1
+fi
+x11vnc -display "$DISPLAY" -rfbauth "$PASSFILE" -forever -shared -noxdamage \
+	-bg -o "$HOME/.cache/x11vnc.log" >/dev/null 2>&1
+ips="$(hostname -I | tr ' ' '\n' | grep -v '^172\.16\.42\.' | head -3 | xargs)"
+notify-send -i video-display "Távoli asztal bekapcsolva" "Csatlakozás VNC-vel: ${ips:-<IP>}:5900"

@@ -1,0 +1,14 @@
+[Unit]
+Description=Mamuthka linux: USB-hálózat (ssh mamuthka@172.16.42.1)
+After=local-fs.target
+Before=ssh.service
+
+[Service]
+Type=simple
+EnvironmentFile=/etc/mamuthka/device.env
+ExecStart=/usr/libexec/mamuthka/usb-network
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

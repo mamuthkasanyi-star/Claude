@@ -1,0 +1,56 @@
+# Mamuthka linux alapértelmezések (a @...@ értékeket a setup.sh tölti ki)
+
+[org.cinnamon.desktop.interface]
+scaling-factor=@UI_SCALE@
+gtk-theme='@GTK_THEME@'
+icon-theme='@ICON_THEME@'
+cursor-size=24
+
+[org.gnome.desktop.interface]
+gtk-theme='@GTK_THEME@'
+icon-theme='@ICON_THEME@'
+color-scheme='prefer-dark'
+
+[org.cinnamon.desktop.wm.preferences]
+theme='@GTK_THEME@'
+
+[org.cinnamon.theme]
+name='cinnamon'
+
+[org.cinnamon.desktop.background]
+picture-uri='file:///usr/share/backgrounds/mamuthka/wallpaper.png'
+picture-options='zoom'
+primary-color='#000000'
+
+# Kiegyensúlyozott energiagazdálkodás: 1 perc után kikapcsol a kijelző.
+[org.cinnamon.desktop.session]
+idle-delay=uint32 60
+
+[org.cinnamon.settings-daemon.plugins.power]
+sleep-display-ac=60
+sleep-display-battery=60
+sleep-inactive-ac-timeout=0
+sleep-inactive-battery-timeout=0
+button-power='blank'
+lock-on-suspend=true
+
+[org.cinnamon.desktop.screensaver]
+lock-enabled=true
+lock-delay=uint32 0
+
+# Érintőképernyős billentyűzet (Onboard): szövegmezőnél automatikusan feljön.
+[org.cinnamon.desktop.a11y.applications]
+screen-keyboard-enabled=false
+
+[org.onboard]
+layout='Phone'
+theme='Nightshade'
+start-minimized=true
+show-status-icon=true
+
+[org.onboard.auto-show]
+enabled=true
+
+[org.onboard.window]
+docking-enabled=true
+force-to-top=true

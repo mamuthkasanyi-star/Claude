@@ -1,0 +1,114 @@
+name: Mamuthka linux – Galaxy A51 build
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [claude/remote-control-wo3lxh]
+    tags: ['v*']
+    paths-ignore: ['**.md']
+
+permissions:
+  contents: write
+
+concurrency:
+  group: build-a51-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  DEVICE: samsung-a51
+
+jobs:
+  kernel:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - name: Függőségek
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang lld llvm gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu \
+            bc flex bison libssl-dev python3 curl make
+      - name: Kernel fordítása
+        run: ./scripts/build-kernel.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: kernel
+          path: |
+            out/samsung-a51/Image
+            out/samsung-a51/dtb.img
+            out/samsung-a51/kernel.config
+            out/samsung-a51/kernel.release
+
+  rootfs:
+    # Natív arm64 gép: nem kell qemu-emuláció (nyilvános repóban ingyenes).
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 240
+    steps:
+      - uses: actions/checkout@v4
+      - name: Hely felszabadítása
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache /usr/local/share/boost || true
+          df -h /
+      - name: Függőségek
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y debootstrap e2fsprogs python3-pil fonts-dejavu-core zstd curl
+      - name: Rendszer (Ubuntu 24.04 + Cinnamon) építése
+        run: sudo -E ./scripts/build-rootfs.sh
+      - name: Tömörítés
+        run: |
+          cd out/samsung-a51
+          sudo sha256sum rootfs.img | sudo tee rootfs.img.sha256
+          sudo zstd -T0 -19 --long=27 -q rootfs.img -o rootfs.img.zst
+          sudo split -b 1900M -d -a 2 rootfs.img.zst rootfs.img.zst.part
+          sudo rm -f rootfs.img rootfs.img.zst
+          ls -la
+      - uses: actions/upload-artifact@v4
+        with:
+          name: rootfs
+          compression-level: 0
+          path: |
+            out/samsung-a51/rootfs.img.zst.part*
+            out/samsung-a51/rootfs.img.sha256
+            out/samsung-a51/busybox
+
+  release:
+    needs: [kernel, rootfs]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: out/samsung-a51
+          merge-multiple: true
+      - name: Függőségek
+        run: sudo apt-get update && sudo apt-get install -y cpio file curl python3 git
+      - name: boot.img
+        run: ./scripts/build-bootimg.sh
+      - name: Kiadási fájlok
+        run: |
+          R=out/samsung-a51/release
+          mkdir -p $R
+          cp out/samsung-a51/boot.img out/samsung-a51/rootfs.img.zst.part* $R/
+          cp scripts/flash-a51.sh $R/
+          cp out/samsung-a51/kernel.config $R/kernel-config.txt
+          (cd out/samsung-a51 && sha256sum boot.img; sed 's#  .*/#  #' rootfs.img.sha256) > $R/SHA256SUMS
+          cat $R/SHA256SUMS
+          ls -la $R
+      - name: GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || 'a51-teszt' }}
+          name: ${{ startsWith(github.ref, 'refs/tags/') && format('Mamuthka linux {0} – Galaxy A51', github.ref_name) || 'Mamuthka linux – Galaxy A51 (tesztverzió)' }}
+          prerelease: ${{ !startsWith(github.ref, 'refs/tags/') }}
+          target_commitish: ${{ github.sha }}
+          body: |
+            **Mamuthka linux 🐧 – Samsung Galaxy A51 (SM-A515F)**
+
+            Telepítés Linuxról (Heimdall): töltsd le az összes fájlt egy mappába, majd:
+            ```
+            sudo apt install heimdall-flash zstd
+            chmod +x flash-a51.sh && ./flash-a51.sh
+            ```
+            Részletek: README.md. Kernel: `${{ github.sha }}`
+          files: out/samsung-a51/release/*

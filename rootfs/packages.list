@@ -1,0 +1,38 @@
+# Mamuthka linux – telepített csomagok (Ubuntu 24.04 noble)
+# Egy sorban több csomag is lehet; '#' kezdetű sor megjegyzés.
+
+# Alaprendszer
+systemd-sysv udev dbus-x11 sudo bash-completion nano less htop
+e2fsprogs busybox-static kbd console-setup
+language-pack-hu language-pack-gnome-hu
+fonts-noto-core fonts-noto-color-emoji fonts-dejavu-core
+
+# Hálózat
+network-manager wpasupplicant iw rfkill dnsmasq-base
+openssh-server ca-certificates curl wget
+
+# Grafika (X11, szoftveres renderelés)
+xserver-xorg-core xserver-xorg-input-libinput x11-xserver-utils xinit
+mesa-utils libgl1-mesa-dri
+
+# Asztal: Cinnamon
+cinnamon-core cinnamon-l10n nemo gnome-terminal
+lightdm slick-greeter
+yaru-theme-gtk yaru-theme-icon
+onboard zenity
+upower polkitd network-manager-gnome
+
+# Boot-logó
+plymouth plymouth-themes
+
+# Alkalmazások
+flatpak gnome-software gnome-software-plugin-flatpak
+
+# Távoli asztal és kivetítés
+x11vnc gnome-network-displays
+
+# Fejlesztői alapcsomag
+git python3 python3-pip python3-venv
+
+# Rendszer
+systemd-zram-generator unattended-upgrades

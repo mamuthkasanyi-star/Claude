@@ -1,0 +1,10 @@
+#!/bin/bash
+# Első bejelentkezés: a kezdő jelszó (1234) megváltoztatása.
+flag="$HOME/.config/mamuthka/change-password"
+[ -e "$flag" ] || exit 0
+sleep 8
+zenity --info --width=600 --title="Üdv a Mamuthka linuxon! 🐧" \
+	--text="A kezdő jelszó: 1234.\n\nBiztonsági okból most változtasd meg.\nA következő ablakban előbb a régi (1234), majd kétszer az új jelszót kell beírni." || true
+if gnome-terminal --wait --title="Jelszó megváltoztatása" -- bash -c 'passwd && touch ~/.config/mamuthka/.password-ok; sleep 2'; then
+	[ -e "$HOME/.config/mamuthka/.password-ok" ] && rm -f "$flag" "$HOME/.config/mamuthka/.password-ok"
+fi

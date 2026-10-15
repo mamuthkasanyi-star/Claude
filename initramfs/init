@@ -1,0 +1,152 @@
+#!/bin/busybox sh
+# Mamuthka linux initramfs
+# 1. megkeresi a gyökér-fájlrendszert a címkéje alapján (ROOTFS_LABEL),
+# 2. átadja a vezérlést a rendszer /sbin/init-jének (systemd).
+# Ha ez nem sikerül, telnetet indít az USB-hálózaton hibakereséshez:
+#   telnet 172.16.42.1   (a gépen: ip addr add 172.16.42.2/24 dev usb0)
+
+/bin/busybox --install -s /bin
+export PATH=/bin:/sbin
+
+. /etc/mamuthka-initramfs.conf
+
+mount -t proc -o nodev,noexec,nosuid proc /proc
+mount -t sysfs -o nodev,noexec,nosuid sysfs /sys
+mount -t devtmpfs -o mode=0755,nosuid dev /dev
+mkdir -p /dev/pts /config /tmp /sysroot
+mount -t devpts devpts /dev/pts
+mount -t configfs configfs /config 2>/dev/null
+
+LOG=/tmp/init.log
+exec >"$LOG" 2>&1
+# A naplót a képernyőre (tty0) is kiírjuk.
+tail -f "$LOG" >/dev/tty0 2>/dev/null &
+TAIL_PID=$!
+
+echo "Mamuthka linux initramfs – $(uname -r)"
+
+# --- USB-hálózat (ugyanaz a sorrend, mint a postmarketOS initramfs-ben) ------
+setup_usb_network() {
+	[ -e /tmp/.usb_done ] && return
+	touch /tmp/.usb_done
+
+	SYS=/sys/class/android_usb/android0
+	if [ -e "$SYS" ]; then
+		echo "USB: android_usb (rndis)"
+		echo 0 > "$SYS/enable"
+		echo "${USB_ID_VENDOR#0x}" > "$SYS/idVendor"
+		echo "${USB_ID_PRODUCT#0x}" > "$SYS/idProduct"
+		echo rndis > "$SYS/functions"
+		echo 1 > "$SYS/enable"
+	fi
+
+	G=/config/usb_gadget/g1
+	UDC="$(ls /sys/class/udc 2>/dev/null | head -1)"
+	if [ -d /config/usb_gadget ] && [ -n "$UDC" ]; then
+		echo "USB: configfs ($UDC)"
+		mkdir -p "$G/strings/0x409"
+		echo "$USB_ID_VENDOR" > "$G/idVendor"
+		echo "$USB_ID_PRODUCT" > "$G/idProduct"
+		echo "Samsung" > "$G/strings/0x409/manufacturer"
+		echo "Mamuthka linux" > "$G/strings/0x409/product"
+		echo "mamuthka" > "$G/strings/0x409/serialnumber"
+		FUNC=ncm.usb0
+		mkdir "$G/functions/$FUNC" 2>/dev/null || { FUNC=rndis.usb0; mkdir "$G/functions/$FUNC"; }
+		mkdir -p "$G/configs/c.1/strings/0x409"
+		echo "USB network" > "$G/configs/c.1/strings/0x409/configuration"
+		ln -s "$G/functions/$FUNC" "$G/configs/c.1/" 2>/dev/null
+		[ -n "$(cat "$G/UDC")" ] && echo "" > "$G/UDC"
+		echo "$UDC" > "$G/UDC"
+	fi
+
+	sleep 1
+	IFACE="$(cat "$G/functions/"*/ifname 2>/dev/null | head -1)"
+	for i in $IFACE rndis0 usb0; do
+		if ifconfig "$i" "$USB_NET_IP" netmask 255.255.255.0 up 2>/dev/null; then
+			IFACE="$i"; break
+		fi
+	done
+	echo "USB: interfész $IFACE, IP $USB_NET_IP"
+	# Egyetlen kliensnek oszt címet.
+	cat > /tmp/udhcpd.conf <<-EOF
+		start $USB_NET_CLIENT_IP
+		end $USB_NET_CLIENT_IP
+		interface $IFACE
+		max_leases 1
+		lease_file /tmp/udhcpd.leases
+		option subnet 255.255.255.0
+	EOF
+	touch /tmp/udhcpd.leases
+	udhcpd /tmp/udhcpd.conf
+}
+
+debug_shell() {
+	echo
+	echo "!!! $1"
+	echo "Hibakereső mód: telnet $USB_NET_IP (USB-kábelen)"
+	echo "Napló: /tmp/init.log; 10 perc múlva (vagy 'pkill sleep' után) újrapróbálja."
+	pidof telnetd >/dev/null || telnetd -b "$USB_NET_IP:23" -l /bin/sh
+	# Várakozás, majd újrapróbálkozás (pl. ha közben javították a partíciót).
+	sleep 600
+}
+
+find_root() {
+	# 1) címke alapján  2) a userdata partíció neve alapján
+	dev="$(findfs "LABEL=$ROOTFS_LABEL" 2>/dev/null)"
+	if [ -z "$dev" ]; then
+		for u in /sys/class/block/*/uevent; do
+			if grep -qix "PARTNAME=$ROOTFS_PARTNAME" "$u"; then
+				dev="/dev/$(sed -n 's/^DEVNAME=//p' "$u")"
+				break
+			fi
+		done
+	fi
+	echo "$dev"
+}
+
+# USB-hálózat mindig (mint a postmarketOS-ben); a rendszer ugyanezt használja tovább.
+setup_usb_network
+
+while :; do
+	# A UFS lemez néha csak pár másodperc után jelenik meg.
+	n=0
+	while [ $n -lt 20 ]; do
+		ROOTDEV="$(find_root)"
+		[ -n "$ROOTDEV" ] && [ -b "$ROOTDEV" ] && break
+		n=$((n + 1)); sleep 0.5
+	done
+	if [ -z "$ROOTDEV" ]; then
+		debug_shell "Nem találom a rendszerpartíciót (LABEL=$ROOTFS_LABEL)."
+		continue
+	fi
+	echo "Gyökér: $ROOTDEV"
+	if ! mount -t ext4 -o rw,noatime "$ROOTDEV" /sysroot; then
+		debug_shell "Nem sikerült csatolni: $ROOTDEV"
+		continue
+	fi
+	if [ ! -x /sysroot/sbin/init ] && [ ! -L /sysroot/sbin/init ]; then
+		umount /sysroot
+		debug_shell "A $ROOTDEV partíción nincs /sbin/init."
+		continue
+	fi
+	# Hibakeresés: ha a rendszeren létezik az /etc/mamuthka-debug fájl,
+	# indulás előtt 30 mp-ig telneten elérhető az initramfs.
+	if [ -e /sysroot/etc/mamuthka-debug ]; then
+		telnetd -b "$USB_NET_IP:23" -l /bin/sh
+		echo "Debug: 30 mp várakozás indulás előtt"
+		sleep 30
+	fi
+	break
+done
+
+cp "$LOG" /sysroot/var/log/mamuthka-initramfs.log 2>/dev/null
+kill "$TAIL_PID" 2>/dev/null
+# A USB-gadget aktív marad; a DHCP-t a rendszerben a dnsmasq veszi át.
+killall udhcpd telnetd 2>/dev/null
+umount /config 2>/dev/null
+
+umount /dev/pts
+mount --move /dev /sysroot/dev
+mount --move /proc /sysroot/proc
+mount --move /sys /sysroot/sys
+exec switch_root /sysroot /sbin/init
