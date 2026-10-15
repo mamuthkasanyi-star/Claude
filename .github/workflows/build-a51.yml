@@ -36,6 +36,7 @@ jobs:
           path: |
             out/samsung-a51/Image
             out/samsung-a51/dtb.img
+            out/samsung-a51/dtbo.img
             out/samsung-a51/kernel.config
             out/samsung-a51/kernel.release
 
@@ -52,13 +53,16 @@ jobs:
       - name: Függőségek
         run: |
           sudo apt-get update
-          sudo apt-get install -y debootstrap e2fsprogs python3-pil fonts-dejavu-core zstd curl
+          sudo apt-get install -y debootstrap e2fsprogs python3-pil zstd curl gcc binutils cpio
       - name: Rendszer (Ubuntu 24.04 + Cinnamon) építése
         run: sudo -E ./scripts/build-rootfs.sh
+      - name: Recovery ramdisk
+        run: sudo -E ./scripts/build-recovery.sh --ramdisk
       - name: Tömörítés
         run: |
           cd out/samsung-a51
           sudo sha256sum rootfs.img | sudo tee rootfs.img.sha256
+          stat -c '%n %s' rootfs.img | sudo tee rootfs.img.size
           sudo zstd -T0 -19 --long=27 -q rootfs.img -o rootfs.img.zst
           sudo split -b 1900M -d -a 2 rootfs.img.zst rootfs.img.zst.part
           sudo rm -f rootfs.img rootfs.img.zst
@@ -70,6 +74,8 @@ jobs:
           path: |
             out/samsung-a51/rootfs.img.zst.part*
             out/samsung-a51/rootfs.img.sha256
+            out/samsung-a51/rootfs.img.size
+            out/samsung-a51/recovery-ramdisk.cpio.gz
             out/samsung-a51/busybox
 
   release:
@@ -83,17 +89,25 @@ jobs:
           merge-multiple: true
       - name: Függőségek
         run: sudo apt-get update && sudo apt-get install -y cpio file curl python3 git
-      - name: boot.img
-        run: ./scripts/build-bootimg.sh
+      - name: boot.img és recovery.img
+        run: |
+          ./scripts/build-bootimg.sh
+          ./scripts/build-recovery.sh --image
       - name: Kiadási fájlok
         run: |
-          R=out/samsung-a51/release
+          O=out/samsung-a51; R=$O/release
           mkdir -p $R
-          cp out/samsung-a51/boot.img out/samsung-a51/rootfs.img.zst.part* $R/
+          cp $O/boot.img $O/recovery.img $O/rootfs.img.zst.part* $R/
           cp scripts/flash-a51.sh $R/
-          cp out/samsung-a51/kernel.config $R/kernel-config.txt
-          (cd out/samsung-a51 && sha256sum boot.img; sed 's#  .*/#  #' rootfs.img.sha256) > $R/SHA256SUMS
-          cat $R/SHA256SUMS
+          cp $O/kernel.config $R/kernel-config.txt
+          (cd $O && sha256sum boot.img recovery.img; sed 's#  .*/#  #' rootfs.img.sha256) > $R/SHA256SUMS
+          # A recovery ebből tudja, mit és mekkorát kell letöltenie.
+          {
+            echo "version ${GITHUB_REF_NAME}-${GITHUB_SHA::7}"
+            cat $O/rootfs.img.size
+            (cd $R && stat -c '%n %s' rootfs.img.zst.part* boot.img recovery.img)
+          } > $R/manifest.txt
+          cat $R/SHA256SUMS $R/manifest.txt
           ls -la $R
       - name: GitHub Release
         uses: softprops/action-gh-release@v2

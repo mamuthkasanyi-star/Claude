@@ -78,6 +78,12 @@ mount -t sysfs sys "$ROOTFS/sys"
 mount --bind /dev "$ROOTFS/dev"
 mount --bind /dev/pts "$ROOTFS/dev/pts"
 mount -t tmpfs tmpfs "$ROOTFS/run"
+# DNS a chrootban: a systemd-resolved csomag a /etc/resolv.conf-ot a
+# /run/systemd/resolve/stub-resolv.conf-ra irányítja, ezért azt is feltöltjük.
+mkdir -p "$ROOTFS/run/systemd/resolve"
+for f in stub-resolv.conf resolv.conf; do
+	cat /etc/resolv.conf > "$ROOTFS/run/systemd/resolve/$f"
+done
 cp /etc/resolv.conf "$ROOTFS/etc/resolv.conf.build"
 install -m755 "$ROOT_DIR/rootfs/setup.sh" "$ROOTFS/tmp/setup.sh"
 chroot "$ROOTFS" /usr/bin/env -i \

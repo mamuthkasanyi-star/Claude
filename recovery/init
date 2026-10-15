@@ -1,0 +1,31 @@
+#!/bin/busybox sh
+# Mamuthka Recovery – init
+/bin/busybox --install -s /bin
+export PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
+
+mount -t proc -o nodev,noexec,nosuid proc /proc
+mount -t sysfs -o nodev,noexec,nosuid sysfs /sys
+mount -t devtmpfs -o mode=0755,nosuid dev /dev
+mkdir -p /dev/pts /config /tmp /run /sysroot /mnt/sd /mnt/new
+mount -t devpts devpts /dev/pts
+mount -t configfs configfs /config 2>/dev/null
+mount -t tmpfs tmpfs /tmp
+mount -t tmpfs tmpfs /run
+
+. /etc/mamuthka/recovery.conf
+. /lib/mamuthka/usbnet.sh
+
+exec >/tmp/recovery.log 2>&1
+echo "Mamuthka Recovery – $(uname -r)"
+cat /proc/cmdline
+
+rui status "Indítás…" "USB-hálózat: telnet $USB_NET_IP" &
+setup_usb_network
+# A recovery-ben a hibakereső shell mindig elérhető USB-kábelen.
+telnetd -b "$USB_NET_IP:23" -l /bin/sh
+
+while :; do
+	/usr/bin/mamuthka-recovery
+	echo "A recovery menü kilépett ($?), újraindítom"
+	sleep 1
+done

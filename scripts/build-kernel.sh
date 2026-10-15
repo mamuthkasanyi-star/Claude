@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Kernel + DTB fordítása (clang, arm64 keresztfordítás).
-# Kimenet: out/<eszköz>/Image, out/<eszköz>/dtb.img, out/<eszköz>/kernel.config
+# Kimenet: out/<eszköz>/Image, dtb.img, dtbo.img, kernel.config, kernel.release
 . "$(dirname "$0")/lib.sh"
 
 need git clang ld.lld make bc flex bison python3 curl aarch64-linux-gnu-as
@@ -64,7 +64,11 @@ log "DTB kép (dt_table) készítése"
 cp "$KOUT/arch/arm64/boot/Image" "$OUT_DIR/Image"
 mkdtboimg cfg_create "$OUT_DIR/dtb.img" "$DEVICE_DIR/kernel/exynos9611.cfg" \
 	-d "$KOUT/arch/arm64/boot/dts/exynos"
+# dtbo.img: csak a recovery.img "recovery_dtbo" részéhez kell (a dtbo partíció
+# érintetlen marad).
+mkdtboimg cfg_create "$OUT_DIR/dtbo.img" "$DEVICE_DIR/kernel/a51.cfg" \
+	-d "$KOUT/arch/arm64/boot/dts/samsung"
 cp "$KOUT/.config" "$OUT_DIR/kernel.config"
-make -s --no-print-directory -C "$SRC" O="$KOUT" ARCH=arm64 kernelrelease > "$OUT_DIR/kernel.release"
+"${MAKE[@]}" -s --no-print-directory kernelrelease > "$OUT_DIR/kernel.release"
 
 log "Kész: $OUT_DIR/Image ($(du -h "$OUT_DIR/Image" | cut -f1)), dtb.img, kernel $(cat "$OUT_DIR/kernel.release")"

@@ -20,6 +20,7 @@ rm -rf "$IRD"
 mkdir -p "$IRD"/{bin,sbin,dev,proc,sys,tmp,etc,config,sysroot,run}
 install -m755 "$BUSYBOX" "$IRD/bin/busybox"
 install -m755 "$ROOT_DIR/initramfs/init" "$IRD/init"
+install -Dm644 "$ROOT_DIR/initramfs/usbnet.sh" "$IRD/lib/mamuthka/usbnet.sh"
 cat > "$IRD/etc/mamuthka-initramfs.conf" <<EOF
 ROOTFS_LABEL="$ROOTFS_LABEL"
 ROOTFS_PARTNAME="$HEIMDALL_PARTITION_ROOTFS"

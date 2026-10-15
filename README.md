@@ -10,13 +10,14 @@ Ubuntu 24.04 alap, **Cinnamon** asztal, magyar nyelv.
 
 | | |
 |---|---|
-| Asztal | Cinnamon, sötét téma (Yaru-dark), pingvines háttér és boot-logó, 2× méretezés |
+| Asztal | Cinnamon, sötét téma (Yaru-dark), mamutos háttér és boot-logó, 2× méretezés |
 | Bejelentkezés | automatikus (`mamuthka`), képernyőzár a jelszóval |
 | Nyelv | magyar felület és billentyűzet, Europe/Budapest |
 | Programok | Firefox (nem snap), Szoftverek (GNOME Software + **Flathub**), terminál, git, Python, SSH |
 | Érintés | Onboard képernyő-billentyűzet (szövegmezőnél feljön) |
 | Kivetítés | Távoli asztal (VNC, menü: *Távoli asztal be/ki*), GNOME Network Displays (Miracast, kísérleti) |
 | Rendszer | zram swap, automatikus biztonsági frissítések, USB-hálózat + SSH hibakereséshez |
+| Recovery | saját **Mamuthka Recovery** (TWRP helyett): telepítés Wi-Firől, javítás, mentés microSD-re |
 
 ### Hardver – mi várható?
 
@@ -27,27 +28,51 @@ Ubuntu 24.04 alap, **Cinnamon** asztal, magyar nyelv.
 \* A Samsung kernelben a Bluetooth socket kódja ki van ürítve, ezért ki van kapcsolva; javítható patch-csel.
 A grafika szoftveresen renderelődik (a Mali GPU-hoz csak androidos driver van), ezért lassabb, mint Androidon.
 
-## Telepítés (Linuxról, Heimdall)
+## Telepítés
 
 **Előfeltétel:** feloldott bootloader (OEM unlock). Ha már futott rajta postmarketOS, ez megvan.
-**A telefonon lévő összes adat törlődik.**
+**A telefonon lévő összes adat törlődik.** A gépen (Linux):
 
-1. Töltsd le a legfrissebb [kiadás](../../releases) összes fájlját egy mappába
-   (`boot.img`, `rootfs.img.zst.part00`, `…part01`, …, `flash-a51.sh`, `SHA256SUMS`).
-2. Telepítsd az eszközöket:
-   ```sh
-   sudo apt install heimdall-flash zstd
-   ```
-3. Indítsd a telefont **Letöltés módba**: kikapcsolva tartsd nyomva a
-   *Hangerő fel + Hangerő le* gombot, és közben dugd be az USB-kábelt, majd nyomd meg a *Hangerő fel*-et.
-4. Futtasd:
-   ```sh
-   chmod +x flash-a51.sh
-   sudo ./flash-a51.sh
-   ```
+```sh
+sudo apt install heimdall-flash zstd
+```
+
+**Letöltés mód:** kikapcsolt telefonon tartsd nyomva a *Hangerő fel + Hangerő le*
+gombot, közben dugd be az USB-kábelt, majd nyomd meg a *Hangerő fel*-et.
+
+### A) Recovery-vel, Wi-Firől (ajánlott)
+
+1. Töltsd le a [kiadásból](../../releases) a `recovery.img`, `flash-a51.sh` és `SHA256SUMS` fájlt.
+2. Telefon Letöltés módban, majd: `sudo ./flash-a51.sh --recovery`
+3. Indítsd a recovery-t: *Bekapcsoló + Hangerő le* ~7 mp (kilép), majd azonnal
+   *Bekapcsoló + Hangerő fel*, amíg megjelenik a **MAMUTHKA RECOVERY** felirat.
+4. **Mamuthka linux telepítése** → válassz Wi-Fit → a recovery felismeri a telefont,
+   letölti és telepíti a hozzá való rendszert (kernel + Cinnamon), majd *Újraindítás*.
+
+### B) Minden egyszerre, USB-n
+
+Töltsd le a kiadás **összes** fájlját egy mappába, telefon Letöltés módban, majd:
+`sudo ./flash-a51.sh`
 
 Az első indulás 1–2 perccel tovább tart. Kezdő jelszó: **1234** – az első
 bejelentkezéskor a rendszer kéri a megváltoztatását.
+
+## Mamuthka Recovery
+
+Indítás: a rendszer menüjéből (*Újraindítás: Mamuthka Recovery*), vagy kikapcsolt
+telefonon *Bekapcsoló + Hangerő fel* (USB-kábel bedugva).
+Kezelés: érintéssel, vagy *Hangerő fel/le* = léptetés, *Bekapcsoló* = OK.
+
+| Menü | Mit csinál |
+|---|---|
+| Telepítés / frissítés | felismeri az eszközt, Wi-Firől letölti a hozzá tartozó kiadást (SHA256-ellenőrzéssel); újratelepítéskor a `/home`, a felhasználók, jelszavak és Wi-Fi-kapcsolatok megmaradnak |
+| Javítás | fájlrendszer-ellenőrzés (e2fsck), Cinnamon-beállítások visszaállítása, jelszó-visszaállítás, újratelepítés |
+| Mentés (microSD) | `/home` vagy teljes rendszer mentése a kártya `MamuthkaBackup` mappájába, visszaállítás |
+| Wi-Fi | hálózat választása, jelszó a képernyő-billentyűzettel (a telepített rendszer Wi-Fi-jeit magától is kipróbálja) |
+| Újraindítás | rendszer, recovery, Letöltés mód, kikapcsolás |
+
+A recovery-ben USB-kábelen mindig elérhető egy hibakereső shell: `telnet 172.16.42.1`
+(napló: `/tmp/recovery.log`).
 
 ## Hibakeresés
 
@@ -79,11 +104,11 @@ Helyben (Ubuntu 24.04):
 ```sh
 sudo apt install clang lld llvm gcc-aarch64-linux-gnu bc flex bison libssl-dev \
   debootstrap qemu-user-static binfmt-support e2fsprogs python3-pil \
-  fonts-dejavu-core cpio zstd curl file git
-sudo ./scripts/build.sh            # kernel + rootfs + boot.img + kiadási fájlok
+  cpio zstd curl file git
+sudo ./scripts/build.sh            # kernel + rootfs + boot.img + recovery.img + kiadási fájlok
 ```
 
-Részlépések: `scripts/build-kernel.sh`, `build-rootfs.sh` (root), `build-bootimg.sh`, `package-release.sh`.
+Részlépések: `scripts/build-kernel.sh`, `build-rootfs.sh` (root), `build-bootimg.sh`, `build-recovery.sh`, `package-release.sh`.
 Kimenet: `out/samsung-a51/`.
 
 ## Felépítés
@@ -94,7 +119,9 @@ devices/samsung-a51/          eszközfüggő rész
   device.conf                 boot.img paraméterek, partíciók, firmware, USB
   kernel/                     kernelkonfig, patchek, DTB-leírók
   overlay/                    eszközfüggő rendszerfájlok (Xorg, NetworkManager)
-initramfs/init                busybox init: rendszer megkeresése, USB-hálózat, hibakereső mód
+initramfs/                    busybox init: rendszer megkeresése, USB-hálózat, hibakereső mód
+recovery/                     Mamuthka Recovery: init, menü-script, rui (framebuffer UI, C), eszközlista
+assets/                       háttérképek (a boot-logó ezekből készül)
 rootfs/                       csomaglista, beállító script, közös rendszerfájlok
 scripts/                      build- és flash-scriptek
 ```

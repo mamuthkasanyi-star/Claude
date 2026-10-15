@@ -1,81 +1,41 @@
 #!/usr/bin/env python3
-"""Mamuthka linux grafikák: sötét pingvines háttérkép és boot-logó.
+"""Mamuthka linux grafikák: háttérkép és boot-logó.
+
+A forrásképek az assets/ mappában vannak (wallpaper-portrait.jpg,
+wallpaper-landscape.jpg). A boot-logó a mamutos rész kivágása az álló képből.
 
 Használat: gen-artwork.py <rootfs> <képernyő-szélesség> <képernyő-magasság>
-Függőség: python3-pil (Pillow), fonts-dejavu-core
+Függőség: python3-pil (Pillow)
 """
 import os
 import sys
 
-from PIL import Image, ImageDraw, ImageFilter, ImageFont
+from PIL import Image, ImageDraw
 
-TITLE = "Mamuthka linux"
-FONT_PATHS = [
-    "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
-    "/usr/share/fonts/dejavu/DejaVuSans-Bold.ttf",
-]
+ASSETS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "assets")
 
 
-def font(size):
-    for p in FONT_PATHS:
-        if os.path.exists(p):
-            return ImageFont.truetype(p, size)
-    return ImageFont.load_default()
+def fit_black(img, w, h):
+    """Arányosan a képernyőre méretez, a maradékot feketével tölti ki."""
+    scale = min(w / img.width, h / img.height)
+    img = img.resize((round(img.width * scale), round(img.height * scale)), Image.LANCZOS)
+    out = Image.new("RGB", (w, h), (0, 0, 0))
+    out.paste(img, ((w - img.width) // 2, (h - img.height) // 2))
+    return out
 
 
-def penguin(d, cx, cy, s):
-    """Egyszerű Tux-szerű pingvin; s = magasság pixelben."""
-    w = s * 0.72
-    orange = (247, 168, 30)
-    # lábak
-    for dx in (-0.2, 0.2):
-        d.ellipse([cx + dx * w - w * 0.2, cy + s * 0.40, cx + dx * w + w * 0.2, cy + s * 0.52], fill=orange)
-    # test
-    d.ellipse([cx - w / 2, cy - s * 0.25, cx + w / 2, cy + s * 0.48], fill=(18, 18, 22))
-    # has
-    d.ellipse([cx - w * 0.34, cy - s * 0.05, cx + w * 0.34, cy + s * 0.45], fill=(238, 238, 238))
-    # fej
-    d.ellipse([cx - w * 0.33, cy - s * 0.50, cx + w * 0.33, cy - s * 0.04], fill=(18, 18, 22))
-    # szemek
-    for dx in (-0.12, 0.12):
-        ex, ey = cx + dx * w, cy - s * 0.30
-        d.ellipse([ex - w * 0.08, ey - s * 0.07, ex + w * 0.08, ey + s * 0.07], fill=(255, 255, 255))
-        d.ellipse([ex - w * 0.035, ey - s * 0.02, ex + w * 0.035, ey + s * 0.05], fill=(10, 10, 10))
-    # csőr
-    d.polygon([(cx - w * 0.12, cy - s * 0.17), (cx + w * 0.12, cy - s * 0.17), (cx, cy - s * 0.07)], fill=orange)
-
-
-def wallpaper(w, h):
-    img = Image.new("RGB", (w, h), (8, 10, 16))
-    # finom kék fény a pingvin mögött
-    glow = Image.new("L", (w, h), 0)
-    gd = ImageDraw.Draw(glow)
-    r = min(w, h) * 0.45
-    gd.ellipse([w / 2 - r, h * 0.42 - r, w / 2 + r, h * 0.42 + r], fill=90)
-    glow = glow.filter(ImageFilter.GaussianBlur(min(w, h) * 0.15))
-    img = Image.composite(Image.new("RGB", (w, h), (30, 60, 120)), img, glow)
-    d = ImageDraw.Draw(img)
-    s = min(w, h) * 0.45
-    penguin(d, w / 2, h * 0.42, s)
-    f = font(int(min(w, h) * 0.07))
-    tw = d.textlength(TITLE, font=f)
-    d.text(((w - tw) / 2, h * 0.42 + s * 0.62), TITLE, font=f, fill=(200, 210, 230))
-    return img
-
-
-def logo(size):
-    img = Image.new("RGBA", (size, int(size * 1.3)), (0, 0, 0, 0))
-    d = ImageDraw.Draw(img)
-    penguin(d, size / 2, size * 0.5, size * 0.85)
-    f = font(int(size * 0.12))
-    tw = d.textlength(TITLE, font=f)
-    d.text(((size - tw) / 2, size * 1.05), TITLE, font=f, fill=(220, 220, 230, 255))
-    return img
+def logo(portrait, width):
+    """A mamut + MAMUTHKA LINUX felirat kivágása (az álló kép 21–61%-a)."""
+    w, h = portrait.size
+    box = (0, int(h * 0.21), w, int(h * 0.61))
+    crop = portrait.crop(box)
+    scale = width / crop.width
+    return crop.resize((width, round(crop.height * scale)), Image.LANCZOS)
 
 
 def dot(size):
     img = Image.new("RGBA", (size, size), (0, 0, 0, 0))
-    ImageDraw.Draw(img).ellipse([0, 0, size - 1, size - 1], fill=(200, 210, 230, 255))
+    ImageDraw.Draw(img).ellipse([0, 0, size - 1, size - 1], fill=(230, 40, 40, 255))
     return img
 
 
@@ -86,12 +46,20 @@ def main():
     icons = os.path.join(root, "usr/share/icons/hicolor/256x256/apps")
     for p in (bg, ply, icons):
         os.makedirs(p, exist_ok=True)
-    wallpaper(w, h).save(os.path.join(bg, "wallpaper.png"))
-    # fekvő változat külső monitorhoz
-    wallpaper(h, w).save(os.path.join(bg, "wallpaper-landscape.png"))
-    logo(min(w, h) // 2).save(os.path.join(ply, "logo.png"))
+
+    portrait = Image.open(os.path.join(ASSETS, "wallpaper-portrait.jpg")).convert("RGB")
+    landscape = Image.open(os.path.join(ASSETS, "wallpaper-landscape.jpg")).convert("RGB")
+
+    fit_black(portrait, w, h).save(os.path.join(bg, "wallpaper.png"))
+    fit_black(landscape, max(w, h), min(w, h)).save(os.path.join(bg, "wallpaper-landscape.png"))
+    logo(portrait, min(w, h) * 3 // 4).save(os.path.join(ply, "logo.png"))
     dot(max(8, min(w, h) // 60)).save(os.path.join(ply, "dot.png"))
-    logo(256).save(os.path.join(icons, "mamuthka-logo.png"))
+
+    # Kis ikon: a mamutfej négyzetes kivágása
+    pw, ph = portrait.size
+    side = int(pw * 0.62)
+    icon = portrait.crop(((pw - side) // 2, int(ph * 0.20), (pw + side) // 2, int(ph * 0.20) + side))
+    icon.resize((256, 256), Image.LANCZOS).save(os.path.join(icons, "mamuthka-logo.png"))
 
 
 if __name__ == "__main__":

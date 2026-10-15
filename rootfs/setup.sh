@@ -5,7 +5,8 @@ set -euo pipefail
 export DEBIAN_FRONTEND=noninteractive
 APT=(apt-get -y -o Dpkg::Options::=--force-confold -o Dpkg::Options::=--force-confdef)
 
-cp /etc/resolv.conf.build /etc/resolv.conf 2>/dev/null || true
+rm -f /etc/resolv.conf
+cp /etc/resolv.conf.build /etc/resolv.conf
 
 echo "== APT források"
 cat > /etc/apt/sources.list.d/ubuntu.sources <<EOF

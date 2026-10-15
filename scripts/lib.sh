@@ -48,7 +48,7 @@ mkbootimg() {
 }
 
 # Rögzített commitról tölti le a mkdtboimg.py-t (AOSP libufdt, Apache-2.0).
-MKDTBOIMG_URL="https://raw.githubusercontent.com/LineageOS/android_system_libufdt/lineage-22.1/utils/src/mkdtboimg.py"
+MKDTBOIMG_URL="https://raw.githubusercontent.com/LineageOS/android_system_libufdt/a64ae44a1b04346271632e3779799f3a17dc3d9a/utils/src/mkdtboimg.py"   # lineage-22.2
 mkdtboimg() {
 	local tool="$WORK_DIR/tools/mkdtboimg.py"
 	if [ ! -f "$tool" ]; then
