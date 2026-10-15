@@ -34,6 +34,9 @@ sed -i "s/^# *\($LOCALE\)/\1/" /etc/locale.gen
 grep -q "^$LOCALE" /etc/locale.gen || echo "$LOCALE UTF-8" >> /etc/locale.gen
 locale-gen
 echo "LANG=$LOCALE" > /etc/default/locale
+# A systemd-firstboot az /etc/locale.conf-ot keresi; nélküle első indításkor
+# interaktívan kérdezne a konzolon (billentyűzet nincs) → az indulás megáll.
+echo "LANG=$LOCALE" > /etc/locale.conf
 ln -sf "/usr/share/zoneinfo/$TIMEZONE" /etc/localtime
 echo "$TIMEZONE" > /etc/timezone
 cat > /etc/default/keyboard <<EOF
@@ -120,7 +123,7 @@ echo "== Szolgáltatások"
 systemctl enable lightdm NetworkManager ssh mamuthka-ssh-keygen mamuthka-resize-rootfs mamuthka-usb-network unattended-upgrades
 systemctl set-default graphical.target
 # Ezek telefonon nem kellenek vagy hibát okoznak a régi kernellel
-systemctl mask systemd-networkd-wait-online.service NetworkManager-wait-online.service \
+systemctl mask systemd-firstboot.service systemd-networkd-wait-online.service NetworkManager-wait-online.service \
 	snapd.service snapd.socket ModemManager.service >/dev/null 2>&1 || true
 
 # Az S-Boot a firmware_class.path=/vendor/firmware útvonalat adja át.

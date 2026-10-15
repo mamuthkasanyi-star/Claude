@@ -1,0 +1,138 @@
+From: Ubuntu Touch port for Samsung Galaxy A51 (a51) – github.com/dima-xd/ubuntu-touch-sm-a515f
+Subject: [PATCH] usb: gadget: build with CONFIG_USB_CONFIGFS_UEVENT disabled
+
+Ubuntu Touch drives the USB gadget through usb_moded, which uses configfs
+the mainline way. Samsung's rework of drivers/usb/gadget/configfs.c under
+#ifdef CONFIG_USB_CONFIGFS_UEVENT is incompatible with that:
+config_usb_cfg_link() puts the function on gi->linked_func instead of
+cfg->func_list, and the only code that moves it back is functions_store(),
+fed from /sys/class/android_usb/android0/functions, which none but the
+Android init writes to. configfs_composite_bind() therefore always sees an
+empty cfg->func_list and returns -EINVAL:
+
+    configfs-gadget 13200000.dwc3: failed to start g1: -22
+
+and the following unlink/link pair crashes the kernel:
+
+    WARNING drivers/usb/gadget/configfs.c:765 config_usb_cfg_unlink+0xa4
+            ("Unable to locate function to unbind")
+    Internal error: Accessing user space memory outside uaccess.h routines
+    PC is at strcmp+0x88   LR is at config_usb_cfg_link+0x304
+      strcmp <- check_symboliclink_change_mode <- config_usb_cfg_link
+
+The option cannot simply be turned off: several places use declarations that
+live inside its #ifdef. This patch fixes those without changing behaviour
+when CONFIG_USB_CONFIGFS_UEVENT=y:
+
+  * ETH_ALEN comes from function/u_ether.h, which is included only under
+    UEVENT, while set_unique_rndis_mac_address() sits under
+    CONFIG_USB_ANDROID_SAMSUNG_COMPOSITE - include <linux/if_ether.h>
+    directly;
+  * dwc3_gadget_get_cmply_link_state_wrapper() (under
+    CONFIG_USB_TYPEC_MANAGER_NOTIFIER) dereferences android_device - the
+    access is guarded, the function stays and returns -ENODEV;
+  * clear_current_usb_link() touches gi->linked_func and is called only from
+    UEVENT code - the definition is guarded;
+  * f_mass_storage.c calls create_mass_storage_device(), defined under
+    UEVENT, from a block guarded only by SAMSUNG_COMPOSITE - the condition is
+    extended;
+  * android_gadget_complete() is used only by android_setup() (UEVENT) but
+    declared under SAMSUNG_COMPOSITE, which becomes -Werror=unused-function
+    with the option off - the condition is extended;
+  * create_function_device() is defined under UEVENT together with
+    android_class, yet f_ncm.c, f_audio_source.c and f_conn_gadget.c call it
+    unconditionally - a stub returning -ENODEV is added. All callers check
+    IS_ERR: f_ncm ignores the result, the other two simply do not create
+    their instance, and neither function is used by any usb_moded mode.
+
+A sixth site, f_ss_mon_gadget.c, is not fixed here: it writes to
+f->ctrlrequest, a struct usb_function member that does not exist without
+UEVENT (composite.h:226), and a chain of functions becomes unused behind it.
+That file is Samsung's USB state monitor for the Android USB HAL, so
+CONFIG_USB_CONFIGFS_F_SS_MON_GADGET is disabled in the port's kernel config
+instead. The option is self-contained: nothing depends on it and nothing
+references it outside its own file.
+
+diff --git a/drivers/usb/gadget/configfs.c b/drivers/usb/gadget/configfs.c
+index f5888fe03..cdf530b07 100644
+--- a/drivers/usb/gadget/configfs.c
++++ b/drivers/usb/gadget/configfs.c
+@@ -9,6 +9,7 @@
+ #include "u_f.h"
+ #include "u_os_desc.h"
+ #include <linux/soc/samsung/exynos-soc.h>
++#include <linux/if_ether.h>
+ 
+ #ifdef CONFIG_USB_CONFIGFS_UEVENT
+ #include <linux/platform_device.h>
+@@ -46,6 +47,12 @@ struct device *create_function_device(char *name)
+ 	}
+ }
+ EXPORT_SYMBOL_GPL(create_function_device);
++#else
++struct device *create_function_device(char *name)
++{
++	return ERR_PTR(-ENODEV);
++}
++EXPORT_SYMBOL_GPL(create_function_device);
+ #endif
+ 
+ #ifdef CONFIG_USB_TYPEC_MANAGER_NOTIFIER
+@@ -172,6 +179,7 @@ int dwc3_gadget_get_cmply_link_state_wrapper(void)
+ 	struct usb_gadget		*gadget;
+ 	int ret = -ENODEV;
+ 
++#ifdef CONFIG_USB_CONFIGFS_UEVENT
+ 	if (android_device && !IS_ERR(android_device)) {
+ 		dev = dev_get_drvdata(android_device);
+ 		cdev = &dev->cdev;
+@@ -183,6 +191,9 @@ int dwc3_gadget_get_cmply_link_state_wrapper(void)
+ 			 	pr_err("usb: %s:gadget pointer is null\n", __func__);
+ 		 }
+ 	}
++#else
++	(void)dev; (void)cdev; (void)gadget;
++#endif
+ 	return ret;
+ }
+ EXPORT_SYMBOL(dwc3_gadget_get_cmply_link_state_wrapper);
+@@ -358,6 +369,7 @@ static int unregister_gadget(struct gadget_info *gi)
+ 	return 0;
+ }
+ 
++#ifdef CONFIG_USB_CONFIGFS_UEVENT
+ static void clear_current_usb_link(struct usb_composite_dev *cdev)
+ {
+ 	struct usb_configuration *c;
+@@ -378,6 +390,7 @@ static void clear_current_usb_link(struct usb_composite_dev *cdev)
+ 		}
+ 	}
+ }
++#endif
+ 
+ static ssize_t gadget_dev_desc_UDC_store(struct config_item *item,
+ 		const char *page, size_t len)
+@@ -1786,7 +1799,8 @@ static void configfs_composite_unbind(struct usb_gadget *gadget)
+ 	cdev->gadget = NULL;
+ 	set_gadget_data(gadget, NULL);
+ }
+-#ifdef CONFIG_USB_ANDROID_SAMSUNG_COMPOSITE
++#if defined(CONFIG_USB_ANDROID_SAMSUNG_COMPOSITE) && \
++	defined(CONFIG_USB_CONFIGFS_UEVENT)
+ static void android_gadget_complete(struct usb_ep *ep, struct usb_request *req)
+ {
+ 	if (req->status || req->actual != req->length)
+diff --git a/drivers/usb/gadget/function/f_mass_storage.c b/drivers/usb/gadget/function/f_mass_storage.c
+index db31d9126..63342b851 100644
+--- a/drivers/usb/gadget/function/f_mass_storage.c
++++ b/drivers/usb/gadget/function/f_mass_storage.c
+@@ -3985,7 +3985,8 @@ static struct usb_function_instance *fsg_alloc_inst(void)
+ 
+ 	config_group_init_type_name(&opts->lun0.group, "lun.0", &fsg_lun_type);
+ 
+-#ifdef CONFIG_USB_ANDROID_SAMSUNG_COMPOSITE
++#if defined(CONFIG_USB_ANDROID_SAMSUNG_COMPOSITE) && \
++	defined(CONFIG_USB_CONFIGFS_UEVENT)
+ 	if (create_mass_storage_device(&opts->func_inst)) {
+ 		rc = -ENODEV;
+ 		goto release_buffers;

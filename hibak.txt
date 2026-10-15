@@ -342,3 +342,22 @@ BOOTLOOP (2026-10-15 este, kernelforrás alapján)
 46. [KISEBB] A pánik szövege a parancsmódú panelen nem jelenhet meg (pánikkor nincs,
     ami képkockát vinne át), az fbcon megtartása ehhez nem elég. A diagnózis útja a
     következő induláskor kiírt pstore/last_kmsg-kivonat (41. tétel pontosítása).
+
+47. [SÚLYOS] CONFIG_USB_CONFIGFS_UEVENT=y: a Samsung configfs a linkelt funkciót nem a
+    konfigurációba teszi → `echo UDC` -22 (az USB sosem jön fel), egy második
+    unlink/link pedig Oops (strcmp, check_symboliclink_change_mode) – a bootloader
+    `oops=panic`-ot ad át, így ez újraindulás. Az Ubuntu Touch A51-port ugyanezt
+    látta (dima-xd/ubuntu-touch-sm-a515f).
+    → JAVÍTVA: UEVENT/SS_MON/RNDIS_MULTIPACKET ki + 0006 patch (onnan átvéve).
+
+48. [SÚLYOS] Első rendszerindítás megáll: üres /etc/machine-id → first boot, az
+    Ubuntu systemd-firstboot.service `--prompt-locale`-lal kérdez a konzolon, mert
+    nincs /etc/locale.conf (és 2 locale van). Billentyűzet nincs → örök várakozás.
+    → JAVÍTVA: systemd-firstboot maszkolva + /etc/locale.conf.
+
+49. [KÖZEPES] CONFIG_FW_LOADER_USER_HELPER_FALLBACK=y: minden hiányzó firmware
+    60 mp várakozás (percekig tartó indulás). UEVENT_HELPER_PATH="/sbin/hotplug".
+    → JAVÍTVA: mindkettő kikapcsolva.
+
+50. [KISEBB] mamuthka-usb-network.service: interfész nélkül végtelen 5 mp-es
+    újraindítási hurok a naplóban. → JAVÍTVA: StartLimit 5/120 mp.

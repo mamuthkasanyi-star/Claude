@@ -1,6 +1,9 @@
 [Unit]
 Description=Mamuthka linux: USB-hálózat (ssh mamuthka@172.16.42.1)
 After=local-fs.target sys-kernel-config.mount
+# Ha nincs USB-vezérlő/interfész, ne próbálkozzon végtelenül 5 mp-enként.
+StartLimitIntervalSec=120
+StartLimitBurst=5
 Before=ssh.service
 
 [Service]

@@ -85,6 +85,12 @@ Készülék Letöltés módból beolvasott állapota:
 - A workflow minden push után (nem `.md`) automatikusan buildel és az
   `a51-teszt` prerelease-be teszi a fájlokat.
 
+- **Párhuzamos auditok (USB, kijelző, rendszerindítás) javításai:**
+  `b_sess=1` a gadget indításához (Samsung dwc3-otg), USB_CONFIGFS_UEVENT ki
+  + 0006 patch (Ubuntu Touch A51-port), DECON-hibernáció ki, a rui nem hív
+  FBIOBLANK-ot, systemd-firstboot maszkolva + /etc/locale.conf, firmware
+  user-helper várakozás ki. Részletek: hibak.txt 44–50.
+
 ## Következő lépések (prioritás szerint)
 
 1. **Flash-teszt az új boot.img + recovery.img-gel.** Ha a recovery megint
