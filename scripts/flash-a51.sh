@@ -12,9 +12,14 @@ set -euo pipefail
 MODE=full
 if [ "${1:-}" = "--recovery" ]; then MODE=recovery; shift; fi
 DIR="${1:-.}"
-PART_BOOT="${PART_BOOT:-boot}"
-PART_RECOVERY="${PART_RECOVERY:-recovery}"
-PART_ROOTFS="${PART_ROOTFS:-userdata}"
+# A PIT-nevek; a kiadásban a device.conf HEIMDALL_PARTITION_* értékei (@…@).
+PART_BOOT="${PART_BOOT:-@PART_BOOT@}"
+PART_RECOVERY="${PART_RECOVERY:-@PART_RECOVERY@}"
+PART_ROOTFS="${PART_ROOTFS:-@PART_ROOTFS@}"
+# Közvetlenül a repóból futtatva (kitöltetlen @…@): a device.conf értékei.
+case "$PART_BOOT" in @*) PART_BOOT=BOOT ;; esac
+case "$PART_RECOVERY" in @*) PART_RECOVERY=RECOVERY ;; esac
+case "$PART_ROOTFS" in @*) PART_ROOTFS=USERDATA ;; esac
 
 die() { echo "HIBA: $*" >&2; exit 1; }
 command -v heimdall >/dev/null || die "Telepítsd a Heimdallt: sudo apt install heimdall-flash"
@@ -105,6 +110,7 @@ fi
 
 cat <<EOF
 
-Ha a heimdall "partition not found" hibát ad, a PIT-ben nagybetűs a név:
-  sudo PART_BOOT=BOOT PART_RECOVERY=RECOVERY PART_ROOTFS=USERDATA $0 $( [ $MODE = recovery ] && echo --recovery ) $DIR
+Ha a heimdall "partition not found" hibát ad, nézd meg a PIT-neveket
+(heimdall print-pit --no-reboot), és add meg őket, pl. kisbetűvel:
+  sudo PART_BOOT=boot PART_RECOVERY=recovery PART_ROOTFS=userdata $0 $( [ $MODE = recovery ] && echo --recovery ) $DIR
 EOF

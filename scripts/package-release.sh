@@ -15,7 +15,9 @@ cp "$OUT_DIR/boot.img" "$OUT_DIR/recovery.img" "$REL/"
 log "rootfs.img tömörítése (zstd)"
 zstd -T0 -19 --long=27 -q -f "$OUT_DIR/rootfs.img" -o "$REL/rootfs.img.zst"
 size=$(stat -c%s "$REL/rootfs.img.zst")
-if [ "$size" -gt 2000000000 ]; then
+# GitHub-limit: 2 GiB / fájl. 1900 MiB-os részek, csak ha tényleg kell (a CI
+# mindig darabol – a recovery és a flash-a51.sh a manifest alapján mindkettőt kezeli).
+if [ "$size" -gt 2147483648 ]; then
 	log "Feldarabolás (${size} bájt)"
 	split -b 1900M -d -a 2 "$REL/rootfs.img.zst" "$REL/rootfs.img.zst.part"
 	rm "$REL/rootfs.img.zst"
@@ -30,7 +32,9 @@ fi
 	(cd "$REL" && stat -c '%n %s' rootfs.img.zst* boot.img recovery.img)
 } > "$REL/manifest.txt"
 
-cp "$ROOT_DIR/scripts/flash-a51.sh" "$REL/"
+sed -e "s/@PART_BOOT@/$HEIMDALL_PARTITION_BOOT/" -e "s/@PART_RECOVERY@/$HEIMDALL_PARTITION_RECOVERY/" \
+	-e "s/@PART_ROOTFS@/$HEIMDALL_PARTITION_ROOTFS/" "$ROOT_DIR/scripts/flash-a51.sh" > "$REL/flash-a51.sh"
+chmod +x "$REL/flash-a51.sh"
 cp "$OUT_DIR/kernel.config" "$REL/kernel-config.txt"
 log "Kész: $REL"
 ls -la "$REL"

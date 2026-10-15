@@ -39,6 +39,12 @@ Készülék Letöltés módból beolvasott állapota:
    `WATCHDOG_HANDLE_BOOT_ENABLED=y`, de a recovery/initramfs scriptekben
    SENKI nem pöcögteti a `/dev/watchdog`-ot → az Exynos bootloader által
    indított watchdog a timeout után kemény resetet ad (fix időzítésű loop).
+   Pontosítás: a `WATCHDOG_HANDLE_BOOT_ENABLED=y` miatt a kernel elvileg maga
+   életben tartja a futó watchdogot, amíg userspace meg nem nyitja – a
+   gyanú így csak akkor áll meg, ha a Samsung-féle `s3c2410_wdt` ezt nem
+   támogatja, vagy a reset a Samsung szoftveres watchdogjától
+   (`SEC_DEBUG_SOFTDOG`/PWDT) jön. A recovery a `/proc/reset_reason`-t
+   kiírja az indítóképernyőre, ez dönti el.
 
 ## Elvégzett és felpusholt változások
 

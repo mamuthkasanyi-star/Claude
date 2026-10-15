@@ -39,14 +39,19 @@ find "$SRC/firmware" -name '*.fw.ihex' | while read -r f; do
 	[ -e "${f%.ihex}" ] || objcopy -I ihex -O binary "$f" "${f%.ihex}"
 done
 
-MAKE=(make -C "$SRC" O="$KOUT" ARCH=arm64 -j"$JOBS"
+# LOCALVERSION= (üres): a sed-del módosított Makefile-ok miatt "piszkos" a git
+# fa, és a setlocalversion különben "+" jelet fűzne a verzióhoz.
+MAKE=(make -C "$SRC" O="$KOUT" ARCH=arm64 -j"$JOBS" LOCALVERSION=
 	CC=clang HOSTCC=clang
 	CROSS_COMPILE=aarch64-linux-gnu- CLANG_TRIPLE=aarch64-linux-gnu-
 	KBUILD_BUILD_USER=mamuthka KBUILD_BUILD_HOST=mamuthka-linux)
 
 log "Konfiguráció: config-base + mamuthka.config"
 mkdir -p "$KOUT"
-cat "$DEVICE_DIR/kernel/config-base" "$DEVICE_DIR/kernel/mamuthka.config" > "$KOUT/.config"
+# merge_config.sh: a mamuthka.config értékei felülírják a bázist (duplikált
+# sorok és "override: reassigning" figyelmeztetések nélkül).
+(cd "$KOUT" && "$SRC/scripts/kconfig/merge_config.sh" -m -O "$KOUT" \
+	"$DEVICE_DIR/kernel/config-base" "$DEVICE_DIR/kernel/mamuthka.config" >/dev/null)
 "${MAKE[@]}" olddefconfig >/dev/null
 
 # Ellenőrzés: minden kért opció tényleg bekerült-e.

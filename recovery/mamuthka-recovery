@@ -60,7 +60,21 @@ mount_root() {
 	mount -t ext4 "$dev" /sysroot 2>/dev/null
 }
 
-umount_root() { sync; is_mounted /sysroot && umount /sysroot; return 0; }
+umount_root() {
+	sync
+	for m in /sysroot/dev /sysroot/proc /sysroot/sys; do is_mounted "$m" && umount "$m"; done
+	is_mounted /sysroot && umount /sysroot
+	return 0
+}
+
+# Parancs futtatása a telepített rendszerben (/dev, /proc, /sys csatolva, hogy
+# a PAM/passwd naplózása és eszközkezelése működjön).
+in_root() {
+	for m in dev proc sys; do
+		is_mounted "/sysroot/$m" || mount --bind "/$m" "/sysroot/$m" 2>/dev/null
+	done
+	chroot /sysroot "$@"
+}
 
 installed() { mount_root && [ -e /sysroot/etc/os-release ] && grep -q "ID=$OS_ID" /sysroot/etc/os-release; }
 
@@ -339,8 +353,8 @@ do_password() {
 	[ -n "$p1" ] || return 0
 	p2="$(rui input "Új jelszó még egyszer" --password)"
 	[ "$p1" = "$p2" ] || { msg "Jelszó" "A két jelszó nem egyezik."; return 0; }
-	if printf '%s:%s\n' "$PICKED" "$p1" | chroot /sysroot /usr/sbin/chpasswd 2>>/tmp/recovery.log; then
-		chroot /sysroot /usr/bin/passwd -u "$PICKED" >/dev/null 2>&1
+	if printf '%s:%s\n' "$PICKED" "$p1" | in_root /usr/sbin/chpasswd 2>>/tmp/recovery.log; then
+		in_root /usr/bin/passwd -u "$PICKED" >/dev/null 2>&1
 		umount_root
 		msg "Jelszó" "$PICKED jelszava megváltozott."
 	else

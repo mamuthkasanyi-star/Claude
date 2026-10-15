@@ -98,7 +98,10 @@ jobs:
           O=out/samsung-a51; R=$O/release
           mkdir -p $R
           cp $O/boot.img $O/recovery.img $O/rootfs.img.zst.part* $R/
-          cp scripts/flash-a51.sh $R/
+          (. devices/samsung-a51/device.conf
+           sed -e "s/@PART_BOOT@/$HEIMDALL_PARTITION_BOOT/" -e "s/@PART_RECOVERY@/$HEIMDALL_PARTITION_RECOVERY/" \
+             -e "s/@PART_ROOTFS@/$HEIMDALL_PARTITION_ROOTFS/" scripts/flash-a51.sh > $R/flash-a51.sh)
+          chmod +x $R/flash-a51.sh
           cp $O/kernel.config $R/kernel-config.txt
           (cd $O && sha256sum boot.img recovery.img; cat rootfs.img.sha256; cd release && sha256sum rootfs.img.zst.part*) > $R/SHA256SUMS
           # A recovery ebből tudja, mit és mekkorát kell letöltenie.

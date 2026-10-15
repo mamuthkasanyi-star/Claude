@@ -102,10 +102,10 @@ A GitHub Actions minden feltöltés után automatikusan buildel, és a
 Helyben (Ubuntu 24.04):
 
 ```sh
-sudo apt install clang lld llvm gcc-aarch64-linux-gnu bc flex bison libssl-dev \
-  debootstrap qemu-user-static binfmt-support e2fsprogs python3-pil \
+sudo apt install clang llvm gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu make bc flex bison \
+  libssl-dev debootstrap qemu-user-static binfmt-support e2fsprogs python3 python3-pil \
   cpio zstd curl file git
-sudo ./scripts/build.sh            # kernel + rootfs + boot.img + recovery.img + kiadási fájlok
+sudo ./scripts/build.sh            # kernel (a saját felhasználóddal) + rootfs + boot.img + recovery.img + kiadás
 ```
 
 Részlépések: `scripts/build-kernel.sh`, `build-rootfs.sh` (root), `build-bootimg.sh`, `build-recovery.sh`, `package-release.sh`.
