@@ -37,15 +37,18 @@ collect_prev_boot
 ls -la "$DIAG_DIR"
 cat "$DIAG_DIR/osszegzes.txt"
 
-# A szöveges konzol maradjon a framebufferen, de csak a vészüzenetek (pánik)
-# jelenjenek meg rajta: így egy kernelpánik szövege a felületre íródik, és
-# 20 mp-ig (CONFIG_PANIC_TIMEOUT) lefotózható.
+# Csak a vészüzenetek menjenek a konzolra. (A panel parancsmódú: pánikkor már
+# semmi nem visz át új képkockát, ezért a pánik szövege NEM látszik a kijelzőn;
+# a következő induláskor a pstore/last_kmsg-ből olvassuk ki.)
 dmesg -n 1
+# Részletes DECON-napló a kernelnaplóba (hibernáció, időtúllépések) a következő
+# indításkor kiolvasható nyomokhoz.
+echo 6 > /sys/module/decon/parameters/decon_log_level 2>/dev/null
 kmark "képernyő"
 
 # Az előző újraindulás oka a képernyőn (lefotózható, ha a recovery megint újraindulna).
 # (a rui a "\n" jelsorozatot sortörésként értelmezi)
-rui status "Indítás…" "USB: telnet $USB_NET_IP\n\n$(awk '{printf "%s\\n", $0}' "$DIAG_DIR/osszegzes.txt")" &
+rui status "Indítás…" "USB: telnet $USB_NET_IP\n\n$(awk '{printf "%s\\n", $0}' "$DIAG_DIR/osszegzes.txt")"
 
 # A kimentett nyomok a telepített rendszer /var/log/mamuthka mappájába is
 # bekerülnek (újraindulás után is megmaradnak, a rendszerből is olvashatók).

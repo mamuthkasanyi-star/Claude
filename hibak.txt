@@ -330,3 +330,15 @@ BOOTLOOP (2026-10-15 este, kernelforrás alapján)
     → JAVÍTVA: usbnet.sh a bekötés után `echo 1 > /sys/class/udc/<udc>/device/b_sess`
       (drivers/usb/dwc3/otg.c dwc3_otg_store_b_sess). Az USB-útvonalban pánikra
       vezető kód nincs: a bootloop oka máshol van.
+
+45. [SÚLYOS/ELLENŐRIZENDŐ] CONFIG_EXYNOS_HIBERNATION=y + pmOS DECON-hack: a rui
+    FBIOBLANK(UNBLANK) hívása needs_pan-t állít, a vsync-szál 200 ms-ig alszik
+    hibernáció-blokk nélkül, közben a pan maszkolja a triggert → 4 TE után a DECON
+    hibernál (ULPS, tápdomén le), majd a szál állapot-ellenőrzés nélkül ír DECON
+    regisztereket → ITMON-pánik lehetséges (exynos9610-itmon.c, 3. hiba után panic).
+    → JAVÍTVA: hibernáció kikapcsolva (mamuthka.config), a rui nem hív FBIOBLANK-ot,
+      decon_log_level=6 a recoveryben.
+
+46. [KISEBB] A pánik szövege a parancsmódú panelen nem jelenhet meg (pánikkor nincs,
+    ami képkockát vinne át), az fbcon megtartása ehhez nem elég. A diagnózis útja a
+    következő induláskor kiírt pstore/last_kmsg-kivonat (41. tétel pontosítása).

@@ -90,8 +90,10 @@ Készülék Letöltés módból beolvasott állapota:
 1. **Flash-teszt az új boot.img + recovery.img-gel.** Ha a recovery megint
    újraindul: a következő induláskor az indítóképernyő kiírja az okot
    (KPON = kernelpánik, WPON = watchdog, TPON = hő, MPON = gombos reset) és
-   a pánik első sorait → **fotó**. Ha a telefon 20 mp-ig áll egy
-   szöveges hibaképernyőn, az maga a pánik → **fotó**.
+   a pánik első sorait → **fotó**. (A pánik szövege magán a pánik-képernyőn
+   nem látszik: parancsmódú panel, pánikkor az utolsó kép marad.)
+   Új gyanú (DECON-audit): kijelző-hibernáció + pmOS-hack → ITMON-pánik;
+   a hibernáció ezért ki van kapcsolva.
 2. A fotó alapján a tényleges hibás driver javítása (várhatóan USB gadget /
    dwc3, vagy DECON). A `mamuthka: USB …` jelzők mutatják, melyik lépésnél.
 3. Ha a rendszer már indul: `journalctl -b` és `/var/log/mamuthka/`.

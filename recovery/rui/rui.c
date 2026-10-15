@@ -71,7 +71,8 @@ static void fb_open(void)
 		back = calloc((size_t)W * H, 4);
 		return;
 	}
-	ioctl(fb_fd, FBIOBLANK, FB_BLANK_UNBLANK);
+	/* Nincs FBIOBLANK(UNBLANK): a kijelző már be van kapcsolva, a hívás a
+	 * DECON-hackben csak egy 200 ms-os "needs_pan" versenyhelyzetet indítana. */
 	if (ioctl(fb_fd, FBIOGET_VSCREENINFO, &vinfo) || ioctl(fb_fd, FBIOGET_FSCREENINFO, &finfo)) {
 		perror("fb ioctl"); exit(2);
 	}
