@@ -13,7 +13,7 @@ diff --git a/lib/debug-snapshot-helper.c b/lib/debug-snapshot-helper.c
 index ad5408138..1fff5a601 100644
 --- a/lib/debug-snapshot-helper.c
 +++ b/lib/debug-snapshot-helper.c
-@@ -323,6 +323,16 @@ int dbg_snapshot_post_panic(void)
+@@ -323,6 +323,20 @@ int dbg_snapshot_post_panic(void)
  
  	dss_soc_ops->soc_post_panic_exit(NULL);
  
@@ -23,7 +23,11 @@ index ad5408138..1fff5a601 100644
 +	 * console (the panic text stays readable on the screen), wait
 +	 * CONFIG_PANIC_TIMEOUT seconds, then emergency_restart().  The
 +	 * original code spins here forever (for JTAG ramdump).
++	 * dbg_snapshot_prepare_panic() armed the HW watchdog for 30 s; give
++	 * the timeout countdown a fresh 30 s window so the restart is the
++	 * kernel's own (reset reason KPON), not a watchdog reset (WPON).
 +	 */
++	s3c2410wdt_keepalive_emergency(true, 0);
 +	return 0;
 +#endif
 +

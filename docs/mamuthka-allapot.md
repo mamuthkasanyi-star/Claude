@@ -60,10 +60,10 @@ Készülék Letöltés módból beolvasott állapota:
 - **Bootloop-diagnosztika (ez a commit):**
   - Kernel: `# CONFIG_DEBUG_SNAPSHOT_PANIC_REBOOT is not set`,
     `# …WATCHDOG_RESET is not set`, `CONFIG_PANIC_ON_OOPS=y`,
-    `CONFIG_PANIC_TIMEOUT=30`, cmdline `consoleblank=0`. Új patch
+    `CONFIG_PANIC_TIMEOUT=20`, cmdline `consoleblank=0`. Új patch
     (`0005-debug-snapshot-do-not-spin-forever-after-panic.patch`): a
     `dbg_snapshot_post_panic()` PANIC_REBOOT nélkül nem pörög örökké, hanem
-    visszatér → a pánik szövege 30 mp-ig a kijelzőn marad (console=tty0),
+    visszatér → a pánik szövege 20 mp-ig a kijelzőn marad (console=tty0),
     utána újraindul. A pstore/ramoops (`log_pstore`, 2 MiB) és a
     `/proc/last_kmsg` a következő indításkor visszaadja a naplót.
   - `initramfs/diag.sh` (recovery + initramfs): kimenti az előző indítás
@@ -90,7 +90,7 @@ Készülék Letöltés módból beolvasott állapota:
 1. **Flash-teszt az új boot.img + recovery.img-gel.** Ha a recovery megint
    újraindul: a következő induláskor az indítóképernyő kiírja az okot
    (KPON = kernelpánik, WPON = watchdog, TPON = hő, MPON = gombos reset) és
-   a pánik első sorait → **fotó**. Ha a telefon 30 mp-ig áll egy
+   a pánik első sorait → **fotó**. Ha a telefon 20 mp-ig áll egy
    szöveges hibaképernyőn, az maga a pánik → **fotó**.
 2. A fotó alapján a tényleges hibás driver javítása (várhatóan USB gadget /
    dwc3, vagy DECON). A `mamuthka: USB …` jelzők mutatják, melyik lépésnél.

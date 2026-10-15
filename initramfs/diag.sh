@@ -48,6 +48,9 @@ collect_prev_boot() {
 		[ -e "$DIAG_ROOT$f" ] || continue
 		cat "$DIAG_ROOT$f" > "$DIAG_DIR/$(echo "${f#/}" | tr / _)" 2>/dev/null
 	done
+	# A ramoops-rekordok törlése: különben a régi pánik minden későbbi meleg
+	# újraindításnál újra "előző indítás" hibaként jelenne meg.
+	[ -n "$DIAG_ROOT" ] || rm -f /sys/fs/pstore/dmesg-ramoops-* /sys/fs/pstore/console-ramoops-* 2>/dev/null
 	# Üres fájlok ki
 	for f in "$DIAG_DIR"/*; do [ -s "$f" ] || rm -f "$f"; done
 
@@ -63,12 +66,12 @@ collect_prev_boot() {
 	if [ -n "$logs" ]; then
 		# Az első végzetes sor és a rá következő 12 (regiszterek, hívási lánc)
 		# shellcheck disable=SC2086
-		cat $logs | grep -a -m1 -A12 -E \
+		cat $logs | grep -av 'mamuthka-recovery: ' | grep -a -m1 -A12 -E \
 			'Kernel panic|Internal error|Unable to handle kernel|BUG: |Bad mode|Hard Reset|Watchdog Timer expired|Temperature too high|Attempting .*emergency' \
 			> "$DIAG_DIR/panik.txt" 2>/dev/null
 		# Az indítás utolsó saját lépése az előző körben
 		# shellcheck disable=SC2086
-		cat $logs | grep -a 'mamuthka:' | tail -n 1 > "$DIAG_DIR/utolso-lepes.txt" 2>/dev/null
+		cat $logs | grep -av 'mamuthka-recovery: ' | grep -a 'mamuthka:' | tail -n 1 > "$DIAG_DIR/utolso-lepes.txt" 2>/dev/null
 	fi
 
 	{
@@ -97,7 +100,8 @@ prev_boot_crashed() { [ -s "$DIAG_DIR/panik.txt" ]; }
 persist_prev_boot() { # célmappa (írható fájlrendszeren)
 	[ -d "$DIAG_DIR" ] || return 1
 	mkdir -p "$1" 2>/dev/null || return 1
-	n=$(ls -d "$1"/inditas-* 2>/dev/null | wc -l)
+	n=$(ls -d "$1"/inditas-* 2>/dev/null | sed 's/.*inditas-\([0-9]*\).*/\1/' | sort -n | tail -n 1)
+	n=$((${n:-0} + 0))
 	d="$1/inditas-$(printf '%03d' $((n + 1)))-$(date +%Y%m%d-%H%M%S 2>/dev/null)"
 	cp -a "$DIAG_DIR" "$d" 2>/dev/null || return 1
 	# Legfeljebb 5 példány

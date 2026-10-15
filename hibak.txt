@@ -322,3 +322,11 @@ BOOTLOOP (2026-10-15 este, kernelforrás alapján)
     „mamuthka: …” lépést; a nyomok a rendszer /var/log/mamuthka/ mappájába is
     kerülnek. Gyanú: USB-gadget beállítás (a UI után jön, és a gépen sosem
     jelent meg USB-eszköz).
+
+44. [SÚLYOS] USB sosem jelent meg a gépen: a Samsung dwc3 OTG módban a gadgetet csak
+    a VBUS-session jelző (fsm->b_sess_vld) állítja el, amit Androidon az
+    usb_notify → CCIC lánc ad 10 mp késleltetéssel; a configfs UDC-bekötés önmagában
+    semmit sem kapcsol be (dwc3_gadget_pullup: "wait for vbus_session").
+    → JAVÍTVA: usbnet.sh a bekötés után `echo 1 > /sys/class/udc/<udc>/device/b_sess`
+      (drivers/usb/dwc3/otg.c dwc3_otg_store_b_sess). Az USB-útvonalban pánikra
+      vezető kód nincs: a bootloop oka máshol van.

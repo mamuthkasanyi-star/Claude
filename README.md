@@ -78,7 +78,7 @@ A recovery-ben USB-kábelen mindig elérhető egy hibakereső shell: `telnet 172
 indítóképernyője (és a *Diagnosztika* menü) kiírja az előző újraindulás okát
 (`KPON` = kernelpánik, `WPON` = watchdog, `TPON` = túlmelegedés, `MPON` = gombos
 reset) és a pánik első sorait – ezt érdemes lefotózni. Egy kernelpánik szövege
-30 másodpercig a kijelzőn is marad, mielőtt a telefon újraindul. A nyomok a
+20 másodpercig a kijelzőn is marad, mielőtt a telefon újraindul. A nyomok a
 telepített rendszer `/var/log/mamuthka/` mappájába is bekerülnek.
 
 ## Hibakeresés

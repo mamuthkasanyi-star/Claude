@@ -50,6 +50,20 @@ setup_usb_network() {
 		km "UDC bekötése"
 		echo "$UDC" > "$G/UDC"
 		km "UDC bekötve"
+		# A Samsung dwc3-otg a gadgetet csak akkor indítja el (PHY, RUN/STOP),
+		# ha a VBUS-session jelző 1; ezt Androidon az usb_notify lánc állítja
+		# (10 mp indítási késleltetéssel). Itt közvetlenül állítjuk a driver
+		# sysfs kapcsolójával (drivers/usb/dwc3/otg.c: b_sess) – enélkül a
+		# gépen soha nem jelenik meg az USB-eszköz.
+		B_SESS="/sys/class/udc/$UDC/device/b_sess"
+		if [ -w "$B_SESS" ]; then
+			km "b_sess=1"
+			echo 1 > "$B_SESS"
+			echo "USB: b_sess=1, otg állapot: $(cat "/sys/class/udc/$UDC/device/state" 2>/dev/null)"
+			km "otg: $(cat "/sys/class/udc/$UDC/device/state" 2>/dev/null)"
+		else
+			echo "USB: nincs b_sess kapcsoló ($B_SESS)"
+		fi
 	fi
 
 	sleep 1

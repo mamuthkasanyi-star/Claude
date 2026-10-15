@@ -39,7 +39,7 @@ cat "$DIAG_DIR/osszegzes.txt"
 
 # A szöveges konzol maradjon a framebufferen, de csak a vészüzenetek (pánik)
 # jelenjenek meg rajta: így egy kernelpánik szövege a felületre íródik, és
-# 30 mp-ig (CONFIG_PANIC_TIMEOUT) lefotózható.
+# 20 mp-ig (CONFIG_PANIC_TIMEOUT) lefotózható.
 dmesg -n 1
 kmark "képernyő"
 
