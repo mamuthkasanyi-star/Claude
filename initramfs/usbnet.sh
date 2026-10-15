@@ -36,7 +36,8 @@ setup_usb_network() {
 		echo "${USB_PRODUCT_NAME:-Mamuthka linux}" > "$G/strings/0x409/product"
 		echo "mamuthka" > "$G/strings/0x409/serialnumber"
 		FUNC=ncm.usb0
-		mkdir "$G/functions/$FUNC" 2>/dev/null || { FUNC=rndis.usb0; mkdir "$G/functions/$FUNC"; }
+		[ -d "$G/functions/$FUNC" ] || mkdir "$G/functions/$FUNC" 2>/dev/null ||
+			{ FUNC=rndis.usb0; mkdir -p "$G/functions/$FUNC"; }
 		mkdir -p "$G/configs/c.1/strings/0x409"
 		echo "USB network" > "$G/configs/c.1/strings/0x409/configuration"
 		ln -s "$G/functions/$FUNC" "$G/configs/c.1/" 2>/dev/null

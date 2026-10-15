@@ -2,4 +2,3 @@
 # minta (shell-minta a "modell + DT compatible" szövegre)   eszköz   kiadás-címke   név (_ = szóköz)
 *SM-A515F*        samsung-a51   a51-teszt   Samsung_Galaxy_A51
 *samsung,a51*     samsung-a51   a51-teszt   Samsung_Galaxy_A51
-*[Aa]51*          samsung-a51   a51-teszt   Samsung_Galaxy_A51

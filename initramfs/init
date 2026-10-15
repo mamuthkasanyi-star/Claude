@@ -92,7 +92,8 @@ done
 
 cp "$LOG" /sysroot/var/log/mamuthka-initramfs.log 2>/dev/null
 kill "$TAIL_PID" 2>/dev/null
-# A USB-gadget aktív marad; a DHCP-t a rendszerben a dnsmasq veszi át.
+# A USB-hálózati interfész marad; a DHCP-t a rendszerben a dnsmasq veszi át.
+# (A telnetd-t is leállítjuk, egy nyitott debug-session itt megszakad.)
 killall udhcpd telnetd 2>/dev/null
 stop_watchdogs
 umount /config 2>/dev/null

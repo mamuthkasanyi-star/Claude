@@ -100,7 +100,7 @@ jobs:
           cp $O/boot.img $O/recovery.img $O/rootfs.img.zst.part* $R/
           cp scripts/flash-a51.sh $R/
           cp $O/kernel.config $R/kernel-config.txt
-          (cd $O && sha256sum boot.img recovery.img; sed 's#  .*/#  #' rootfs.img.sha256) > $R/SHA256SUMS
+          (cd $O && sha256sum boot.img recovery.img; cat rootfs.img.sha256; cd release && sha256sum rootfs.img.zst.part*) > $R/SHA256SUMS
           # A recovery ebből tudja, mit és mekkorát kell letöltenie.
           {
             echo "version ${GITHUB_REF_NAME}-${GITHUB_SHA::7}"

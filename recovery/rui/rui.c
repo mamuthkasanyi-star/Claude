@@ -211,7 +211,7 @@ static void font_load(void)
 		qsort(gmap, gmap_n, sizeof(*gmap), gcmp);
 	}
 	/* Kb. 34 karakter férjen el egy sorban. */
-	scale = W / (int)(font_w * 34);
+	scale = (W + (int)font_w * 17) / (int)(font_w * 34);
 	if (scale < 1) scale = 1;
 }
 
@@ -336,6 +336,7 @@ static int wait_event(int timeout_ms)
 	for (i = 0; i < ndev; i++) { pf[i].fd = devs[i].fd; pf[i].events = POLLIN; }
 	for (;;) {
 		r = poll(pf, ndev, timeout_ms);
+		if (r < 0 && errno == EINTR) continue;
 		if (r <= 0) return EV_NONE;
 		for (i = 0; i < ndev; i++) {
 			struct input_event ev;

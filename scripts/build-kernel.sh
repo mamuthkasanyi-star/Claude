@@ -3,13 +3,16 @@
 # Kimenet: out/<eszköz>/Image, dtb.img, dtbo.img, kernel.config, kernel.release
 . "$(dirname "$0")/lib.sh"
 
-need git clang ld.lld make bc flex bison python3 curl aarch64-linux-gnu-as
+need git clang make bc flex bison python3 curl aarch64-linux-gnu-as
 
 SRC="$WORK_DIR/kernel-src"
 KOUT="$WORK_DIR/kernel-out"
 JOBS="${JOBS:-$(nproc)}"
 
-if [ ! -d "$SRC/.git" ] || [ "$(git -C "$SRC" rev-parse HEAD 2>/dev/null)" != "$KERNEL_COMMIT" ]; then
+# A .mamuthka-patched jelző csak akkor jön létre, ha minden patch rendben
+# felment; nélküle (pl. félbeszakadt futás után) a forrást újra letöltjük.
+if [ ! -d "$SRC/.git" ] || [ "$(git -C "$SRC" rev-parse HEAD 2>/dev/null)" != "$KERNEL_COMMIT" ] ||
+	[ ! -e "$SRC/.mamuthka-patched" ]; then
 	log "Kernelforrás letöltése ($KERNEL_COMMIT)"
 	rm -rf "$SRC"
 	git init -q "$SRC"
@@ -27,6 +30,7 @@ if [ ! -d "$SRC/.git" ] || [ "$(git -C "$SRC" rev-parse HEAD 2>/dev/null)" != "$
 	# rengeteg figyelmeztetést ad, ezeket ne kezeljük hibaként.
 	find "$SRC" -type f \( -name Makefile -o -name Kbuild \) -print0 |
 		xargs -0 sed -i -e 's/-Werror-/-W/g' -e 's/-Werror//g'
+	touch "$SRC/.mamuthka-patched"
 fi
 
 # A beépített firmware-eket (ACPM, érintőpanel) a Makefile a forrásfából várja, de O= esetén csak

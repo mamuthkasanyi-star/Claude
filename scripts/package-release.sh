@@ -20,6 +20,8 @@ if [ "$size" -gt 2000000000 ]; then
 	split -b 1900M -d -a 2 "$REL/rootfs.img.zst" "$REL/rootfs.img.zst.part"
 	rm "$REL/rootfs.img.zst"
 fi
+# A letöltött (tömörített) részek is ellenőrizhetők legyenek kicsomagolás előtt.
+(cd "$REL" && sha256sum rootfs.img.zst*) >> "$REL/SHA256SUMS"
 
 # A recovery ebből tudja, mit és mekkorát kell letöltenie.
 {

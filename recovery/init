@@ -17,7 +17,7 @@ mount -t pstore pstore /sys/fs/pstore 2>/dev/null
 . /lib/mamuthka/usbnet.sh
 . /lib/mamuthka/watchdog.sh
 
-exec >/tmp/recovery.log 2>&1
+exec >>/tmp/recovery.log 2>&1
 echo "Mamuthka Recovery – $(uname -r)"
 cat /proc/cmdline
 

@@ -32,9 +32,19 @@ if [ $MODE = full ]; then
 	[ -f boot.img ] || die "Nincs boot.img"
 	if [ ! -f rootfs.img ]; then
 		command -v zstd >/dev/null || die "Telepítsd: sudo apt install zstd"
-		if ls rootfs.img.zst.part* >/dev/null 2>&1; then
+		# A részek listája a manifest.txt-ből (a kiadásban maradhatnak régi,
+		# már nem használt részek is, ezeket nem szabad hozzáfűzni).
+		parts=""
+		[ -f manifest.txt ] && parts="$(awk '$1 ~ /^rootfs\.img\.zst/ {print $1}' manifest.txt | sort)"
+		[ -n "$parts" ] || parts="$(ls rootfs.img.zst.part* 2>/dev/null || true)"
+		if [ -n "$parts" ]; then
+			# shellcheck disable=SC2086
+			for p in $parts; do [ -f "$p" ] || die "Hiányzik: $p (töltsd le a kiadásból)"; done
+			# shellcheck disable=SC2086
+			grep -q "rootfs\.img\.zst" SHA256SUMS 2>/dev/null && check $parts
 			echo "rootfs.img kicsomagolása (részekből)…"
-			cat rootfs.img.zst.part* | zstd -d -o rootfs.img
+			# shellcheck disable=SC2086
+			cat $parts | zstd -d -o rootfs.img
 		elif [ -f rootfs.img.zst ]; then
 			echo "rootfs.img kicsomagolása…"
 			zstd -d rootfs.img.zst -o rootfs.img
@@ -96,5 +106,5 @@ fi
 cat <<EOF
 
 Ha a heimdall "partition not found" hibát ad, a PIT-ben nagybetűs a név:
-  PART_BOOT=BOOT PART_RECOVERY=RECOVERY PART_ROOTFS=USERDATA $0 $( [ $MODE = recovery ] && echo --recovery ) $DIR
+  sudo PART_BOOT=BOOT PART_RECOVERY=RECOVERY PART_ROOTFS=USERDATA $0 $( [ $MODE = recovery ] && echo --recovery ) $DIR
 EOF

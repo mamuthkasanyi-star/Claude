@@ -11,6 +11,9 @@ GTAR=/usr/libexec/gnu/tar   # GNU tar (xattr/ACL)
 WORK=/tmp/mr
 mkdir -p "$WORK"
 
+# A busyboxban nincs mountpoint applet: a /proc/mounts alapján döntünk.
+is_mounted() { grep -qs " $1 " /proc/mounts; }
+
 log() { echo "[$(date +%T)] $*" >> /tmp/recovery.log; }
 msg() { rui msg "$1" "$2"; }
 status() { rui status "$1" "$2"; }
@@ -52,12 +55,12 @@ detect_device() {
 root_dev() { find_part "$ROOTFS_PARTNAME"; }
 
 mount_root() {
-	mountpoint -q /sysroot && return 0
+	is_mounted /sysroot && return 0
 	dev="$(root_dev)" || { fail "Nem találom a(z) $ROOTFS_PARTNAME partíciót."; return 1; }
 	mount -t ext4 "$dev" /sysroot 2>/dev/null
 }
 
-umount_root() { sync; mountpoint -q /sysroot && umount /sysroot; return 0; }
+umount_root() { sync; is_mounted /sysroot && umount /sysroot; return 0; }
 
 installed() { mount_root && [ -e /sysroot/etc/os-release ] && grep -q "ID=$OS_ID" /sysroot/etc/os-release; }
 
@@ -70,7 +73,7 @@ wifi_iface() {
 }
 
 wifi_online() {
-	ip route | grep -q '^default' && wget -q -T 8 --spider "https://api.github.com" 2>/dev/null
+	ip route | grep -q '^default' && wget -q -T 8 --ca-certificate=/etc/ssl/certs/ca-certificates.crt --spider "https://api.github.com" 2>/dev/null
 }
 
 wifi_connect() { # SSID JELSZÓ
@@ -105,6 +108,11 @@ wifi_from_system() {
 		ssid="$(sed -n 's/^ssid=//p' "$f" | head -1)"
 		psk="$(sed -n 's/^psk=//p' "$f" | head -1)"
 		[ -n "$ssid" ] || continue
+		# Csak a nyílt és a WPA-PSK kapcsolatokat tudjuk a fájlból átvenni
+		# (SAE/EAP vagy agent által tárolt jelszó esetén nincs psk a fájlban).
+		km="$(sed -n 's/^key-mgmt=//p' "$f" | head -1)"
+		case "$km" in ''|none|wpa-psk) ;; *) continue ;; esac
+		[ "$km" = wpa-psk ] && [ -z "$psk" ] && continue
 		status "Wi-Fi" "Csatlakozás: $ssid…"
 		wifi_connect "$iface" "$ssid" "$psk" && wifi_online && return 0
 	done
@@ -159,7 +167,7 @@ ensure_wifi() {
 REL_URL() { echo "https://github.com/$RELEASE_REPO/releases/download/$DEV_TAG/$1"; }
 
 fetch() { # név → $WORK/név
-	wget -q -T 30 -O "$WORK/$1" "$(REL_URL "$1")"
+	wget -q -T 30 --ca-certificate=/etc/ssl/certs/ca-certificates.crt -O "$WORK/$1" "$(REL_URL "$1")"
 }
 
 # A kiadás leíróinak letöltése: manifest.txt (fájl méret), SHA256SUMS
@@ -180,7 +188,7 @@ stream_rootfs() { # cél
 	mkfifo "$WORK/sha.fifo"
 	sha256sum < "$WORK/sha.fifo" > "$WORK/sha.out" &
 	shapid=$!
-	(for p in $PARTS; do wget -q -T 60 -O - "$(REL_URL "$p")" || exit 1; done) |
+	(for p in $PARTS; do wget -q -T 60 --ca-certificate=/etc/ssl/certs/ca-certificates.crt -O - "$(REL_URL "$p")" || exit 1; done) |
 		zstd -d -c | tee "$WORK/sha.fifo" | rui pipe "Rendszer letöltése és telepítése" "$ROOT_SIZE" |
 		dd of="$1" bs=4M 2>>/tmp/recovery.log
 	rc=$?
@@ -233,10 +241,16 @@ do_install() {
 		stream_rootfs "$rootdev" || { fail "A letöltés vagy az ellenőrzés sikertelen. Próbáld újra."; return 1; }
 		status "Telepítés" "Fájlrendszer ellenőrzése…"
 		e2fsck -fy "$rootdev" >> /tmp/recovery.log 2>&1
+		status "Telepítés" "Fájlrendszer kiterjesztése a teljes partícióra…"
+		resize2fs "$rootdev" >> /tmp/recovery.log 2>&1 || log "resize2fs sikertelen (az első indulás pótolja)"
 	else
 		mount_root || return 1
 		free_kb=$(df -k /sysroot | awk 'NR==2{print $4}')
-		[ $((free_kb / 1024)) -gt $((ROOT_SIZE / 1048576 + 1024)) ] ||
+		keep_kb=0
+		for k in $KEEP; do
+			[ -e "/sysroot/$k" ] && keep_kb=$((keep_kb + $(du -sk "/sysroot/$k" | cut -f1)))
+		done
+		[ $((free_kb / 1024)) -gt $((ROOT_SIZE / 1048576 + keep_kb / 1024 + 1024)) ] ||
 			{ fail "Nincs elég szabad hely az újratelepítéshez."; return 1; }
 		img=/sysroot/.mamuthka-new.img
 		rm -f "$img"
@@ -354,7 +368,7 @@ menu_repair() {
 
 # ---------------------------------------------------------------- mentés ---
 mount_sd() {
-	mountpoint -q /mnt/sd && return 0
+	is_mounted /mnt/sd && return 0
 	for d in /dev/mmcblk*p1 /dev/mmcblk[0-9]; do
 		[ -b "$d" ] || continue
 		for t in exfat sdfat vfat ext4; do
@@ -445,7 +459,7 @@ menu_backup() {
 
 menu_power() {
 	sel="$(rui menu "Újraindítás" "Rendszer indítása" "Recovery újraindítása" "Letöltés mód (Heimdall/Odin)" "Kikapcsolás" "Vissza")"
-	umount_root; mountpoint -q /mnt/sd && umount /mnt/sd
+	umount_root; is_mounted /mnt/sd && umount /mnt/sd
 	case "$sel" in
 		0) rui reboot ;;
 		1) rui reboot recovery ;;

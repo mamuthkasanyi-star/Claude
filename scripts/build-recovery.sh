@@ -100,7 +100,7 @@ build_ramdisk() {
 
 build_image() {
 	[ -f "$RAMDISK" ] || die "Nincs recovery ramdisk: $RAMDISK"
-	for f in Image dtb.img dtbo.img; do [ -f "$OUT_DIR/$f" ] || die "Hiányzik: $OUT_DIR/$f (build-kernel.sh)"; done
+	for f in Image dtb.img; do [ -f "$OUT_DIR/$f" ] || die "Hiányzik: $OUT_DIR/$f (build-kernel.sh)"; done
 	log "recovery.img"
 	# A recovery_dtbo szándékosan kimarad: a bootloader a recovery indulásakor
 	# az érintetlen gyári "dtbo" partíciót alkalmazza az alap dtb-re (mint a
