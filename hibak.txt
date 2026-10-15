@@ -2,6 +2,8 @@ HIBÁK – Mamuthka linux (átnézés: 2026-10-15, ág: claude/remote-control-wo
 ==============================================================================
 Jelölés: [SÚLYOS] működést akadályoz · [KÖZEPES] adott helyzetben hibázik ·
 [KISEBB] kozmetikai / pontatlanság · [ELLENŐRIZENDŐ] valószínű, de csak eszközön igazolható
+Állapot (2026-10-15): a tételek alatt „→ JAVÍTVA (commit)” – a commitok a
+claude/remote-control-wo3lxh ágon vannak.
 
 ------------------------------------------------------------------------------
 RECOVERY (recovery/mamuthka-recovery, recovery/init, scripts/build-recovery.sh)
@@ -16,20 +18,24 @@ RECOVERY (recovery/mamuthka-recovery, recovery/init, scripts/build-recovery.sh)
    "tiszta telepítés" dd-je csatolt partícióra írhat, a mkfs.ext4 (do_restore)
    csatolt eszközre fut. Javítás: `copy_bin usr/bin/mountpoint usr/bin/mountpoint`
    (util-linux) a build-recovery.sh-ban, vagy `grep -qs " /sysroot " /proc/mounts`.
+    → JAVÍTVA (0c2e214): is_mounted a /proc/mounts alapján.
 
 2. [KÖZEPES] recovery/init 18. sor: `exec >/tmp/recovery.log` (csonkolva, O_APPEND
    nélkül), közben a mamuthka-recovery `log()` és sok parancs `>> /tmp/recovery.log`
    -gal ír ugyanabba a fájlba. Két eltérő fájlpozíció → a napló egymást felülíró,
    töredékes lesz. Javítás: `exec >>/tmp/recovery.log`.
+    → JAVÍTVA (0c2e214): exec >>.
 
 3. [KÖZEPES] recovery/devices.list 5. sor: a `*[Aa]51*` minta túl tág – illeszkedik
    pl. az SM-A516B (A51 5G, Exynos 980!) és bármely "a51"-et tartalmazó szövegre,
    így rossz készülékre is a samsung-a51 kiadást telepítené.
+    → JAVÍTVA (0c2e214): a *[Aa]51* sor törölve.
 
 4. [KÖZEPES] do_install "keep" mód (241–251): a szabadhely-ellenőrzés csak a
    ROOT_SIZE + 1 GiB-ot nézi, de utána a KEEP-listában lévő var/lib/flatpak
    (több GiB lehet) is lemásolódik a .mamuthka-keep alá, mielőtt a régi rendszer
    törlődik → "No space left" a másolás közepén.
+    → JAVÍTVA (0c2e214): a KEEP-lista mérete is beleszámít.
 
 5. [KÖZEPES] stream_rootfs → `dd of=$rootdev bs=4M` + utána e2fsck, de a letöltött
    kép a partíciónál kisebb; a rendszer majd a mamuthka-resize-rootfs service-szel
@@ -38,11 +44,13 @@ RECOVERY (recovery/mamuthka-recovery, recovery/init, scripts/build-recovery.sh)
    telepítésnél a recovery nem futtat resize2fs-t, és ha a rendszer első
    indulása elhasal a resize előtt, a fájlrendszer ~5 GiB marad. (Javaslat:
    a recovery futtassa a resize2fs-t a dd után, van hozzá bináris.)
+    → JAVÍTVA (0c2e214): resize2fs tiszta telepítés után.
 
 6. [KÖZEPES] wifi_from_system (103–110): a NetworkManager .nmconnection fájlokból
    `psk=` sort olvas, de WPA3/SAE, EAP vagy `psk-flags=1` (agent-owned, nincs
    psk a fájlban) esetén üres jelszóval `key_mgmt=NONE`-ként próbál csatlakozni.
    Nem kritikus, de felesleges 30 mp-es várakozás hálózatonként.
+    → JAVÍTVA (0c2e214): csak WPA-PSK/nyílt hálózatot próbál.
 
 7. [ELLENŐRIZENDŐ] HTTPS a recoveryben: a recovery.conf `SSL_CERT_FILE`-t exportál,
    de a GNU wget Ubuntun GnuTLS-sel fordul, ami ezt a változót NEM olvassa.
@@ -50,19 +58,23 @@ RECOVERY (recovery/mamuthka-recovery, recovery/init, scripts/build-recovery.sh)
    /etc/ssl/certs/ca-certificates.crt-t használja (valószínű). Biztosabb:
    `wget --ca-certificate=/etc/ssl/certs/ca-certificates.crt` vagy /etc/wgetrc
    `ca_certificate=...` a ramdiskbe.
+    → JAVÍTVA (0c2e214): wget --ca-certificate.
 
 8. [KISEBB] build-recovery.sh 102: a `--image` fázis megköveteli a dtbo.img-t,
    pedig a 09a47f0 óta nem használja (recovery_dtbo kivéve).
+    → JAVÍTVA (0c2e214): nem kell dtbo.img.
 
 9. [KISEBB] recovery/rui/rui.c wait_event(): ha a poll() hibával tér vissza
    (EINTR), EV_NONE-t ad → choose() azonnal újrarajzol és újra poll-ol
    (forgó ciklus, nem végzetes). font_load(): `scale = W/(font_w*34)` 1080 px-nél
    és 16 px széles fontnál 1 → a szöveg 16×32 px, azaz nagyon apró egy 2400 px-es
    kijelzőn ("kb. 34 karakter/sor" cél nem teljesül, ~67 lesz).
+    → JAVÍTVA (0c2e214): poll EINTR, scale kerekítés.
 
 10. [KISEBB] mamuthka-recovery 328: `chroot /sysroot /usr/sbin/chpasswd` – a
     chroot alatt nincs /proc és /dev csatolva; a PAM-os chpasswd ettől általában
     működik, de a passwd(1) naplózása (`/dev/log`) hibát írhat.
+    → JAVÍTVA (b9a7a5f): in_root(): /dev, /proc, /sys bind-mount a chroot előtt.
 
 ------------------------------------------------------------------------------
 INITRAMFS (initramfs/init, initramfs/usbnet.sh)
@@ -76,6 +88,7 @@ INITRAMFS (initramfs/init, initramfs/usbnet.sh)
     recovery-loopnál). Megj.: HANDLE_BOOT_ENABLED épp azt jelenti, hogy a kernel
     maga tartja életben, amíg userspace meg nem nyitja a /dev/watchdog-ot – a
     doksiban leírt gyanú ezért ellenőrizendő, nem biztos.
+    → JAVÍTVA (52695dc): a watchdog pöcögtetése az initramfs elején indul (watchdog.sh), a debug_shell alatt is fut.
 
 12. [KISEBB] usbnet.sh 36: `[ -n "$(cat "$G/UDC")" ] && echo "" > "$G/UDC"` – ha a
     gadget már egy UDC-hez van kötve, a leválasztás előtt a functions symlink már
@@ -83,10 +96,12 @@ INITRAMFS (initramfs/init, initramfs/usbnet.sh)
     EEXIST miatt elbukik és RNDIS-re vált, holott NCM is menne. (A /tmp/.usb_done
     őrzi egy bootot, de a usb-network service a rendszerben nem hívja → ott nem
     probléma.)
+    → JAVÍTVA (0c2e214): a meglévő NCM függvény újrahasznosítása.
 
 13. [KISEBB] initramfs/init 92: `killall udhcpd telnetd` – a telnetd leállításával a
     nyitott debug-session is megszakad; szándékos lehet, de a komment
     ("USB-gadget aktív marad") félrevezető: csak a hálózati interfész marad.
+    → JAVÍTVA (0c2e214): komment javítva.
 
 ------------------------------------------------------------------------------
 KERNEL / BOOT (scripts/build-kernel.sh, devices/samsung-a51/kernel/*)
@@ -96,10 +111,12 @@ KERNEL / BOOT (scripts/build-kernel.sh, devices/samsung-a51/kernel/*)
     megszakad), a következő futás HEAD==KERNEL_COMMIT miatt kihagyja az egészet
     → patch nélküli kernel épül, hiba nélkül. Javítás: jelzőfájl (pl.
     .mamuthka-patched) vagy a patchek alkalmazása `git apply --check` után külön.
+    → JAVÍTVA (0c2e214): .mamuthka-patched jelzőfájl.
 
 15. [KISEBB] A sed-del módosított Makefile-ok "piszkossá" teszik a git fát, ezért a
     kernelrelease `4.14.113-mamuthka+` lesz (plusz jel), hiába van
     LOCALVERSION_AUTO kikapcsolva. (out/samsung-a51/kernel.release ezt mutatja.)
+    → JAVÍTVA (b9a7a5f): make LOCALVERSION= → nincs "+".
 
 16. [KISEBB] mamuthka.config 15–24 vs config-base: CONFIG_CGROUP_PIDS,
     CONFIG_CGROUP_DEVICE, CONFIG_CRYPTO_LZ4, CONFIG_SQUASHFS a bázisban
@@ -107,6 +124,7 @@ KERNEL / BOOT (scripts/build-kernel.sh, devices/samsung-a51/kernel/*)
     duplán szerepelnek; az olddefconfig az utolsót veszi (működik), de
     "override: reassigning" figyelmeztetésekkel – tisztább lenne a
     scripts/kconfig/merge_config.sh.
+    → JAVÍTVA (b9a7a5f): scripts/kconfig/merge_config.sh.
 
 17. [KISEBB] device.conf BOOTIMG_CMDLINE="androidboot.selinux=permissive …":
     az S-Boot a header cmdline-t nem adja át (a komment is ezt írja), és a kernel
@@ -115,13 +133,16 @@ KERNEL / BOOT (scripts/build-kernel.sh, devices/samsung-a51/kernel/*)
     (CONFIG_SECURITY_SELINUX=y, DEFAULT_SECURITY="selinux", nincs BOOTPARAM /
     DISABLE), tehát futásidőben nem kapcsolható ki; policy nélkül Ubuntu alatt
     általában ártalmatlan, de a systemd/libselinux viselkedése [ELLENŐRIZENDŐ].
+    → JAVÍTVA (b9a7a5f): androidboot.selinux kivéve, SELinux-megjegyzés.
 
 18. [KISEBB] mamuthka.config: CONFIG_DEVTMPFS_MOUNT=y initramfs-es bootnál
     hatástalan (csak initramfs nélküli root-nál mountol automatikusan).
+    → JAVÍTVA (b9a7a5f): CONFIG_DEVTMPFS_MOUNT kivéve.
 
 19. [KISEBB] build-kernel.sh 6: `need ld.lld`, de a make nem kap LD=ld.lld-t
     (CROSS_COMPILE miatt a GNU aarch64-linux-gnu-ld linkel) → az lld
     követelmény felesleges, vagy LD=ld.lld hiányzik.
+    → JAVÍTVA (0c2e214): ld.lld követelmény kivéve.
 
 ------------------------------------------------------------------------------
 ROOTFS (scripts/build-rootfs.sh, rootfs/setup.sh, overlay)
@@ -133,6 +154,7 @@ ROOTFS (scripts/build-rootfs.sh, rootfs/setup.sh, overlay)
     nem-conffile fájljait (pl. /usr/share/... alatt) a csomag felülírja. A
     sajat/README.md azt ígéri, hogy a saját fájlok "mindent felülírnak" – ez
     csak az /etc-re igaz. Javítás: a saját overlay másolása a setup.sh után is.
+    → JAVÍTVA (6ff63ac): sajat/rootfs a setup.sh UTÁN is bemásolva.
 
 21. [KÖZEPES] setup.sh 134–138: ha nincs systemd-resolved (debootstrap + a listázott
     csomagok nem húzzák be), a /etc/resolv.conf TÖRLŐDIK. A NetworkManager
@@ -141,6 +163,7 @@ ROOTFS (scripts/build-rootfs.sh, rootfs/setup.sh, overlay)
     "keep" módú újratelepítés után a fájl hiányozhat → névfeloldás nélkül
     indul. Biztonságosabb: systemd-resolved a packages.list-be, vagy üres
     resolv.conf meghagyása.
+    → JAVÍTVA (6ff63ac): systemd-resolved a csomaglistában; különben üres resolv.conf marad.
 
 22. [KISEBB] setup.sh 55: a Firefox-telepítés hibáját `2>/dev/null` elrejti, és ha a
     PPA-ban nincs arm64 build, a flatpak fallback a chrootban hálózatot és
@@ -148,30 +171,36 @@ ROOTFS (scripts/build-rootfs.sh, rootfs/setup.sh, overlay)
     gnome-software ettől függetlenül snap-nélküli Firefoxot vár). A
     "firefox-locale-hu" sikertelen telepítése a Firefoxot is kihagyja az első
     próbálkozásból (együtt egy apt-hívás).
+    → JAVÍTVA (6ff63ac): firefox és firefox-locale-hu külön; a Flathub-tároló most a fallback ELŐTT jön létre (eddig utána – a fallback el sem indulhatott).
 
 23. [KISEBB] build-rootfs.sh 9: `need debootstrap mkfs.ext4 …`, de a script
     e2fsck, truncate, chroot, mountpoint, du parancsokat is használ (nem
     ellenőrzött függőségek; Ubuntun alapból megvannak).
+    → JAVÍTVA (6ff63ac): need-lista bővítve.
 
 24. [KISEBB] rootfs/overlay/usr/lib/systemd/system/mamuthka-usb-network.service:
     `After=local-fs.target` és `Before=ssh.service`, de nincs
     `After=sys-kernel-config.mount` / a configfs gadget ifname-olvasása
     (/sys/kernel/config/usb_gadget/g1/...) a configfs csatolása előtt üres lehet
     → a script a usb0/rndis0/ncm0 fallback-re szorul (általában elég).
+    → JAVÍTVA (6ff63ac): After=sys-kernel-config.mount.
 
 25. [KISEBB] 10-mamuthka-usb.conf és 20-a51-wifi.conf: mindkettő a [keyfile]
     unmanaged-devices kulcsot adja meg; a NetworkManager a később beolvasott
     fájl értékével FELÜLÍRJA (nem egyesíti) – a 20-as tartalmazza a usb-s neveket
     is, így most működik, de a 10-es fájl hatástalan (duplikált karbantartás).
+    → JAVÍTVA (6ff63ac): conf.d fájlok helyett udev-szabályok (ENV{NM_UNMANAGED}), ezek összeadódnak.
 
 26. [KISEBB] rootfs/overlay/usr/share/glib-2.0/schemas/90_mamuthka.gschema.override:
     `scaling-factor=@UI_SCALE@` → "2" – a kulcs uint32 típusú; a
     glib-compile-schemas típus szerint parse-ol, így elfogadja, de az egységesség
     kedvéért `uint32 2` lenne (az idle-delay-nél így is van).
+    → JAVÍTVA (6ff63ac): uint32.
 
 27. [KISEBB] setup.sh 117: `systemctl enable … unattended-upgrades` – a csomag
     unattended-upgrades.service-e alapból enabled; viszont a `snapd.service`
     maszkolása felesleges (snapd pin -1 miatt nincs is telepítve), rendben.
+    → NEM IGÉNYEL JAVÍTÁST: a kifejezett enable és a mask ártalmatlan.
 
 28. [KISEBB] rootfs/overlay/etc/ssh/sshd_config.d/50-mamuthka.conf: a Match blokk
     `PasswordAuthentication yes`-t ad, de `KbdInteractiveAuthentication` marad
@@ -181,6 +210,7 @@ ROOTFS (scripts/build-rootfs.sh, rootfs/setup.sh, overlay)
     az első bootnál (ssh-keygen -A előtt) → első kapcsolat hibás, Restart után jó.
     Javítás: a keygen unit `Before=ssh.socket`-je megvan, de a drop-in
     `ssh.socket.d/` is kellene, vagy `sshd-keygen`-szerű ExecStartPre.
+    → JAVÍTVA (6ff63ac): a keygen Before=ssh.socket-je rendezési hurkot is okozott (socket→sockets.target→basic.target→keygen); helyette ssh.service: Wants+After.
 
 ------------------------------------------------------------------------------
 BUILD / KIADÁS (scripts/package-release.sh, flash-a51.sh, workflow)
@@ -193,33 +223,39 @@ BUILD / KIADÁS (scripts/package-release.sh, flash-a51.sh, workflow)
     manifest.txt szerint tölt, azt nem érinti.) Javaslat: a flash-script a
     manifest.txt / SHA256SUMS alapján listázza a részeket, vagy a release
     fájllista legyen a workflowban `overwrite_files` + takarítás.
+    → JAVÍTVA (0c2e214): a flash-a51.sh a manifest.txt szerinti részeket fűzi össze.
 
 30. [KÖZEPES] scripts/package-release.sh és a workflow SHA256SUMS-a a rootfs.img
     (kicsomagolt) hash-ét tartalmazza, de a letöltött rootfs.img.zst.part* fájlokra
     nincs ellenőrzőösszeg → a flash-a51.sh `check` (45) csak kicsomagolás UTÁN
     jelez hibát, a részfájlok sérülését nem lehet letöltés után ellenőrizni.
+    → JAVÍTVA (0c2e214): SHA256SUMS a rootfs.img.zst* részekre is.
 
 31. [KISEBB] flash-a51.sh: a PART_BOOT/RECOVERY/ROOTFS neveket beégeti ("boot",
     "recovery", "userdata"), nem a device.conf HEIMDALL_PARTITION_* értékeit
     használja (két helyen karbantartandó). A `--recovery` mód nem ellenőrzi,
     hogy a kiadásban lévő recovery.img ugyanahhoz a kernelhez tartozik-e, mint
     amit a recovery később telepít (manifest version) – rendben, csak megjegyzés.
+    → JAVÍTVA (b9a7a5f): device.conf nagybetűs PIT-nevek (kipróbálva), a flash-a51.sh alapértékei a kiadáskor ebből töltődnek.
 
 32. [KISEBB] package-release.sh 18: 2 000 000 000 bájt felett darabol 1900M
     (=1 992 294 400) részekre – a GitHub limit 2 GiB (2 147 483 648), tehát egy
     2,0–2,1 GB-os fájl feleslegesen darabolódik; a workflow viszont MINDIG darabol
     (67. sor), így a helyi és a CI kiadás fájlnevei eltérnek (rootfs.img.zst vs
     .part00). A recovery manifest-alapú, ezért mindkettőt kezeli.
+    → JAVÍTVA (b9a7a5f): helyben csak 2 GiB felett darabol.
 
 33. [KISEBB] build-a51.yml 103: `sed 's#  .*/#  #' rootfs.img.sha256` – a fájl már
     útvonal nélkül készül (`cd out/samsung-a51 && sha256sum rootfs.img`), a sed
     hatástalan; nem hiba, csak halott kód.
+    → JAVÍTVA (0c2e214): a sed kivéve.
 
 34. [KISEBB] README.md "Build" rész: a függőséglistából hiányzik a
     `binutils-aarch64-linux-gnu`-n kívül a `sha256sum/split` (coreutils, megvan),
     a `python3` és a `make` – apróság; a `scripts/build.sh` viszont rootként futtatja
     a kernelfordítást is (a kernel-out root tulajdonú lesz), ami a későbbi
     nem-root `build-kernel.sh` futást elrontja.
+    → JAVÍTVA (b9a7a5f): README függőségek; build.sh a kernelt a sudo-t hívó felhasználóval fordítja.
 
 ------------------------------------------------------------------------------
 DOKUMENTÁCIÓ / KÖVETKEZETLENSÉG
@@ -229,24 +265,60 @@ DOKUMENTÁCIÓ / KÖVETKEZETLENSÉG
     életben tartja a bootloader által indított watchdogot, amíg userspace meg
     nem nyitja → a gyanú a leírt formában nem áll meg; a Samsung-féle
     s3c2410_wdt módosított változatát kell megnézni (lásd 11.).
+    → JAVÍTVA (b9a7a5f): docs/mamuthka-allapot.md pontosítva.
 
 36. [KISEBB] README.md: "Ha a heimdall partition not found…" – a flash-a51.sh
     99. sora `$0 $(…) $DIR`-t ír, de `$0` relatív útvonal lehet (`./flash-a51.sh`),
     sudo-val együtt a tanács `sudo` nélkül jelenik meg.
+    → JAVÍTVA (0c2e214): sudo a tanácsban.
 
 37. [KISEBB] mamuthka.config 11. sor kommentje helyes (CONFIG_CMDLINE a
     bootloader-paraméterek ELÉ kerül; drivers/of/fdt.c CMDLINE_EXTEND), viszont
     a device.conf 18–20. sora ("a valódi paraméterek a CONFIG_CMDLINE-ban")
     nem említi, hogy a bootloader `console=ram`-ja felülírja a preferált
     konzolt – a `console=tty0` ettől még regisztrálódik.
+    → JAVÍTVA (b9a7a5f): device.conf komment kiegészítve.
 
 ------------------------------------------------------------------------------
 NEM HIBA, DE KOCKÁZAT (eszközön ellenőrizendő)
 ------------------------------------------------------------------------------
 - CONFIG_SCSC_WLBTD=y: a Samsung Wi-Fi driver a `wlbtd` userspace démont várja
   (netlink); pmOS-en enélkül is működik, de a recovery/rootfs nem tartalmazza.
+  → NYITOTT: a wlbtd zárt Samsung-bináris (vendor), csak eszközön dönthető el,
+    kell-e; ha a Wi-Fi a recoveryben nem indul, ez a következő gyanú.
 - Firmware-útvonal rendben: a driver 4.14-en VFS-ből olvas
   (/lib/firmware/samsung-a51/mx140/mx140.bin, mx140_wlan.hcf), megfelel a
   device.conf FIRMWARE_DIR + CONFIG_SCSC_CORE_FW_LOCATION beállításnak.
 - ext4: mke2fs 1.47 `metadata_csum`-ja a 4.14-en támogatott (CRC32C be van
   fordítva); orphan_file helyesen kikapcsolva.
+
+------------------------------------------------------------------------------
+BOOTLOOP (2026-10-15 este, kernelforrás alapján)
+------------------------------------------------------------------------------
+39. [SÚLYOS] A recovery/initramfs watchdog-pöcögtetése (52695dc) maga ÉLESÍTETTE a
+    hardveres és a soft watchdogot: a s3c2410_wdt a probe-ban leállítja a hw
+    watchdogot (tmr_atboot=0), a softdog csak megnyitáskor indul. A busybox
+    `watchdog` megnyitotta mindkettőt (20 mp) → ha a pöcögtető kiesik, reset.
+    → JAVÍTVA: initramfs/watchdog.sh csak jelent, nem nyit meg semmit.
+
+40. [SÚLYOS] CONFIG_DEBUG_SNAPSHOT_PANIC_REBOOT=y: pánik után azonnali
+    újraindítás (exynos_post_panic_exit → arm_pm_restart), a PANIC_TIMEOUT és a
+    képernyőre írt pánik-üzenet hatástalan → a bootloop oka láthatatlan.
+    → JAVÍTVA: kikapcsolva (+ WATCHDOG_RESET), PANIC_ON_OOPS=y, PANIC_TIMEOUT=30,
+      0005-… patch: a dbg_snapshot_post_panic() PANIC_REBOOT nélkül nem pörög
+      örökké (wfi), hanem visszatér a normál panic() útra.
+
+41. [KÖZEPES] A recovery lekötötte az fbcon-t (vtcon bind=0), így egy kernelpánik
+    szövege nem jelenhetett meg a kijelzőn.
+    → JAVÍTVA: az fbcon marad, csak `dmesg -n 1` (csak a vészüzenetek látszanak).
+
+42. [KISEBB] A ramdiskekben nem volt /sbin/poweroff: a hővédelmi orderly_poweroff
+    (thermal_core) nem talált parancsot, és azonnal kernel_power_off-ot hívott.
+    → JAVÍTVA: /sbin/poweroff|reboot|halt → busybox (recovery/init, initramfs/init).
+
+43. [ELLENŐRIZENDŐ] A bootloop tényleges oka: az új indítóképernyő / Diagnosztika
+    menü kiírja az előző indulás okát (KPON/WPON/TPON/MPON) és a pánik első
+    sorait (pstore dmesg-ramoops, /proc/last_kmsg), valamint az utolsó
+    „mamuthka: …” lépést; a nyomok a rendszer /var/log/mamuthka/ mappájába is
+    kerülnek. Gyanú: USB-gadget beállítás (a UI után jön, és a gépen sosem
+    jelent meg USB-eszköz).

@@ -1,0 +1,32 @@
+From: Mamuthka linux
+Subject: [PATCH] debug-snapshot: do not spin forever after panic when PANIC_REBOOT is off
+
+With CONFIG_DEBUG_SNAPSHOT_PANIC_REBOOT disabled, dbg_snapshot_post_panic()
+still parked the CPU in a wfi loop ("for stall cpu when not enabling panic
+reboot"), so the phone hung on a kernel panic and PANIC_TIMEOUT never ran.
+Return instead, so the stock panic() path flushes the console, waits
+PANIC_TIMEOUT seconds (the message stays readable on the display) and then
+restarts.
+
+---
+diff --git a/lib/debug-snapshot-helper.c b/lib/debug-snapshot-helper.c
+index ad5408138..1fff5a601 100644
+--- a/lib/debug-snapshot-helper.c
++++ b/lib/debug-snapshot-helper.c
+@@ -323,6 +323,16 @@ int dbg_snapshot_post_panic(void)
+ 
+ 	dss_soc_ops->soc_post_panic_exit(NULL);
+ 
++#ifndef CONFIG_DEBUG_SNAPSHOT_PANIC_REBOOT
++	/*
++	 * Without forced reboot, let panic() continue normally: flush the
++	 * console (the panic text stays readable on the screen), wait
++	 * CONFIG_PANIC_TIMEOUT seconds, then emergency_restart().  The
++	 * original code spins here forever (for JTAG ramdump).
++	 */
++	return 0;
++#endif
++
+ 	/* for stall cpu when not enabling panic reboot */
+ 	dbg_snapshot_spin_func();
+ 

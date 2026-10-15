@@ -1,35 +1,25 @@
 # shellcheck shell=sh
-# Watchdogok pöcögtetése az initramfs-ben és a recovery-ben.
+# Watchdogok az initramfs-ben és a recovery-ben – csak állapotjelentés.
 #
-# Az Exynos hardveres watchdogját (s3c2410_wdt) a bootloader elindítja, a
-# Samsung kernelben pedig ott a saját szoftveres watchdog is (SEC_DEBUG_SOFTDOG,
-# PWDT). Androidon ezeket a userspace pöcögteti; ha senki nem teszi, a telefon
-# pár másodperc / perc után újraindul (recovery bootloop).
+# A kernelforrás (drivers/watchdog/s3c2410_wdt.c) szerint az Exynos hardveres
+# watchdogját a driver a probe-ban LEÁLLÍTJA (tmr_atboot = 0), a softdog
+# (drivers/watchdog/softdog.c) pedig csak akkor indul el, ha valaki megnyitja a
+# /dev/watchdogN eszközt. Azaz alapból egyik sem fut, és nem kell pöcögtetni.
 #
-# start_watchdogs: minden /dev/watchdogN eszközre indít egy busybox watchdog
-#                  folyamatot (1 mp-enként pöcögtet, 20 mp-es időkorlát).
-# stop_watchdogs:  leállítja őket; a busybox kilépéskor „magic close”-t ír
-#                  ('V'), így a watchdog kikapcsol, és a rendszer (systemd)
-#                  tiszta állapotból veheti át.
+# Korábban itt busybox `watchdog` folyamatok nyitották meg az eszközöket: ezzel
+# ÉLESÍTETTÜK mindkét watchdogot (20 mp), és ha a pöcögtető bármiért kiesett,
+# a telefon újraindult – vagyis a pöcögtetés nem véd, hanem új hibaforrás.
+# Ezért most csak naplózunk; ha a /proc/reset_reason WPON-t mutat (watchdog),
+# akkor kell ide visszatérni.
 
 start_watchdogs() {
-	n=0
-	# A watchdog-eszközök néha csak a driverek késői probe-ja után jelennek meg.
-	while [ $n -lt 10 ] && ! ls /dev/watchdog* >/dev/null 2>&1; do
-		n=$((n + 1)); sleep 0.2
-	done
-	for w in /dev/watchdog[0-9]*; do
+	for w in /dev/watchdog /dev/watchdog[0-9]*; do
 		[ -c "$w" ] || continue
-		watchdog -t 1 -T 20 "$w" && echo "Watchdog: $w pöcögtetése (1 mp / 20 mp)" ||
-			echo "Watchdog: $w nem nyitható meg"
+		echo "Watchdog: $w jelen van (nem nyitjuk meg, így nem is indul el)"
 	done
-	# Ha csak a régi stílusú /dev/watchdog van (watchdogN nélkül)
-	if ! ls /dev/watchdog[0-9]* >/dev/null 2>&1 && [ -c /dev/watchdog ]; then
-		watchdog -t 1 -T 20 /dev/watchdog && echo "Watchdog: /dev/watchdog pöcögtetése"
+	if ! ls /dev/watchdog* >/dev/null 2>&1; then
+		echo "Watchdog: nincs /dev/watchdog* eszköz"
 	fi
 }
 
-stop_watchdogs() {
-	killall watchdog 2>/dev/null
-	sleep 0.3
-}
+stop_watchdogs() { :; }

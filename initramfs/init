@@ -7,6 +7,8 @@
 
 /bin/busybox --install -s /bin
 export PATH=/bin:/sbin
+# A kernel az /sbin/poweroff-ot hívja (pl. hővédelmi orderly_poweroff).
+for c in poweroff reboot halt; do [ -e /sbin/$c ] || ln -s /bin/busybox /sbin/$c; done
 
 . /etc/mamuthka-initramfs.conf
 
@@ -27,9 +29,13 @@ echo "Mamuthka linux initramfs – $(uname -r)"
 
 . /lib/mamuthka/usbnet.sh
 . /lib/mamuthka/watchdog.sh
+. /lib/mamuthka/diag.sh
 
-# A watchdogokat a rendszer indulásáig mi pöcögtetjük (lásd watchdog.sh).
+kmark "initramfs indul ($(uname -r))"
 start_watchdogs
+# Az előző indítás nyomai (pánik, reset-ok); a képernyőre is kiírjuk.
+collect_prev_boot
+cat "$DIAG_DIR/osszegzes.txt"
 
 debug_shell() {
 	echo
@@ -56,7 +62,9 @@ find_root() {
 }
 
 # USB-hálózat mindig (mint a postmarketOS-ben); a rendszer ugyanezt használja tovább.
+kmark "USB-hálózat"
 setup_usb_network
+kmark "gyökér keresése"
 
 while :; do
 	# A UFS lemez néha csak pár másodperc után jelenik meg.
@@ -90,7 +98,11 @@ while :; do
 	break
 done
 
+kmark "gyökér csatolva: $ROOTDEV"
 cp "$LOG" /sysroot/var/log/mamuthka-initramfs.log 2>/dev/null
+# Az előző indítás nyomai a rendszer naplómappájába (journalctl mellett olvasható).
+d="$(persist_prev_boot /sysroot/var/log/mamuthka)" && echo "Előző indítás nyomai: $d"
+umount /sys/fs/pstore 2>/dev/null
 kill "$TAIL_PID" 2>/dev/null
 # A USB-hálózati interfész marad; a DHCP-t a rendszerben a dnsmasq veszi át.
 # (A telnetd-t is leállítjuk, egy nyitott debug-session itt megszakad.)
@@ -102,4 +114,5 @@ umount /dev/pts
 mount --move /dev /sysroot/dev
 mount --move /proc /sysroot/proc
 mount --move /sys /sysroot/sys
+kmark "switch_root → systemd"
 exec switch_root /sysroot /sbin/init

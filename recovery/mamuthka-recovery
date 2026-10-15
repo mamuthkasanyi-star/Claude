@@ -485,11 +485,12 @@ menu_power() {
 # --------------------------------------------------------- diagnosztika ---
 show_diag() {
 	D=/tmp/elozo-inditas
-	t="Előző újraindulás oka: $(head -c 60 "$D/proc_reset_reason" 2>/dev/null | tr '\n' ' ')"
-	t="$t\n$(head -c 300 "$D/proc_auto_comment" 2>/dev/null | tr '\n' ' ')"
-	t="$t\n\nWatchdog: $(pidof watchdog >/dev/null && echo fut || echo NEM fut)"
+	t="$(awk '{printf "%s\\n", $0}' "$D/osszegzes.txt" 2>/dev/null)"
+	t="$t\nWatchdog: $(ls /dev/watchdog* 2>/dev/null | tr '\n' ' ')(nem élesítve)"
 	t="$t\nUSB-vezérlő: $(ls /sys/class/udc 2>/dev/null | head -1)"
-	t="$t\n\nNapló vége:\n$(grep -v '^ *$' /tmp/recovery.log | tail -n 12 | cut -c1-60)"
+	t="$t\nHő: $(awk -F': ' '{printf "%s=%d ", substr($1,1,6), $2/1000}' "$D/homerseklet.txt" 2>/dev/null | cut -c1-110)"
+	t="$t\n\nNapló vége:\n$(grep -v '^ *$' /tmp/recovery.log | tail -n 10 | cut -c1-60)"
+	t="$t\n\nFájlok: $D, a rendszeren /var/log/mamuthka/"
 	msg "Diagnosztika" "$t"
 }
 

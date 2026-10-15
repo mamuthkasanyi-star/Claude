@@ -35,35 +35,48 @@ Készülék Letöltés módból beolvasott állapota:
 
 1. Nem aláírás/zár gond (custom elfogadva).
 2. Nem korai DTB-pánik (a recovery UI kirajzolódik → kernel+panel jó).
-3. **Vezető gyanú: hardver-watchdog.** `CONFIG_S3C2410_WATCHDOG=y`,
-   `WATCHDOG_HANDLE_BOOT_ENABLED=y`, de a recovery/initramfs scriptekben
-   SENKI nem pöcögteti a `/dev/watchdog`-ot → az Exynos bootloader által
-   indított watchdog a timeout után kemény resetet ad (fix időzítésű loop).
-   Pontosítás: a `WATCHDOG_HANDLE_BOOT_ENABLED=y` miatt a kernel elvileg maga
-   életben tartja a futó watchdogot, amíg userspace meg nem nyitja – a
-   gyanú így csak akkor áll meg, ha a Samsung-féle `s3c2410_wdt` ezt nem
-   támogatja, vagy a reset a Samsung szoftveres watchdogjától
-   (`SEC_DEBUG_SOFTDOG`/PWDT) jön. A recovery a `/proc/reset_reason`-t
-   kiírja az indítóképernyőre, ez dönti el.
+3. **A watchdog-gyanú a kernelforrás alapján elvetve** (2026-10-15 este):
+   - `drivers/watchdog/s3c2410_wdt.c`: `tmr_atboot = 0`, a probe
+     `s3c2410wdt_stop()`-ot hív → a hardveres watchdog a kernel indulásakor
+     LEÁLL, senkinek nem kell pöcögtetnie.
+   - `drivers/watchdog/softdog.c` (SEC_DEBUG_SOFTDOG_PWDT): csak akkor indul,
+     ha valaki megnyitja a `/dev/watchdogN`-t.
+   - A korábbi busybox `watchdog` pöcögtetés tehát maga ÉLESÍTETTE mindkét
+     watchdogot (20 mp) – nem védett, hanem új hibaforrás volt; kivéve.
+   - Crash key (`sec_crash_key.c`) csak `androidboot.force_upload` mellett
+     aktív; a hard-reset-hook (Power+Hangerő− 6 mp) csak hosszú nyomásra.
+4. **Marad: kernelpánik.** A Samsung `debug-snapshot` a pánik után AZONNAL
+   újraindít (`CONFIG_DEBUG_SNAPSHOT_PANIC_REBOOT`, `exynos_post_panic_exit`
+   → `arm_pm_restart`), ezért a pánik szövege sosem látszott, és a
+   `PANIC_TIMEOUT` hatástalan volt. Pánikgyanús pont: az USB-gadget
+   beállítása (a UI kirajzolása UTÁN, és a gépen sosem jelent meg USB-eszköz).
 
 ## Elvégzett és felpusholt változások
 
-- `2f93f15` – Kernel `CONFIG_PANIC_TIMEOUT` 5 → 15 (a `mamuthka.config`-ban;
-  felülírja a `config-base`-t). Megj.: watchdog-resetet NEM lassít, csak pánikot.
-- `09a47f0` – `recovery_dtbo` kivéve a recovery.img-ből
-  (`scripts/build-recovery.sh`). A recovery mostantól a gyári `dtbo`
-  partíciót használja, mint a normál boot.img. Ez a `recovery_dtbo`
-  board-rev eltérésének kizárására szolgáló TESZT.
-
-- (következő commit) – **Watchdog-pöcögtetés** (`initramfs/watchdog.sh`): a
-  recovery és az initramfs minden `/dev/watchdogN`-re busybox `watchdog -t 1
-  -T 20`-at indít; az initramfs a switch_root előtt magic close-zal leállítja.
-  **Diagnosztika:** a recovery induláskor kimenti az előző indítás nyomait
-  (`/proc/reset_reason`, `auto_comment`, `last_kmsg`, pstore →
-  `/tmp/elozo-inditas/`), az okot kiírja az indítóképernyőre, a naplót a
-  `/dev/kmsg`-be is küldi; új menüpont: *Diagnosztika (napló)*.
-  **USB:** az `usbnet.sh` max. 10 mp-ig vár a UDC-re (2026-10-15 teszt: a
-  recovery alatt a gépen semmilyen USB-eszköz nem jelent meg).
+- `2f93f15` – `CONFIG_PANIC_TIMEOUT` 5 → 15. `09a47f0` – `recovery_dtbo`
+  kivéve a recovery.img-ből. `52695dc` – diagnosztika a recovery-ben
+  (reset-ok a képernyőn, kmsg-napló) és watchdog-pöcögtetés (utóbbi azóta
+  visszavonva, lásd fent).
+- **Bootloop-diagnosztika (ez a commit):**
+  - Kernel: `# CONFIG_DEBUG_SNAPSHOT_PANIC_REBOOT is not set`,
+    `# …WATCHDOG_RESET is not set`, `CONFIG_PANIC_ON_OOPS=y`,
+    `CONFIG_PANIC_TIMEOUT=30`, cmdline `consoleblank=0`. Új patch
+    (`0005-debug-snapshot-do-not-spin-forever-after-panic.patch`): a
+    `dbg_snapshot_post_panic()` PANIC_REBOOT nélkül nem pörög örökké, hanem
+    visszatér → a pánik szövege 30 mp-ig a kijelzőn marad (console=tty0),
+    utána újraindul. A pstore/ramoops (`log_pstore`, 2 MiB) és a
+    `/proc/last_kmsg` a következő indításkor visszaadja a naplót.
+  - `initramfs/diag.sh` (recovery + initramfs): kimenti az előző indítás
+    nyomait (`/proc/reset_reason`, `pwrsrc`, `auto_comment`, `last_kmsg`,
+    `/sys/fs/pstore/*`), kikeresi a pánik sorait (`panik.txt`), és az
+    „Utolsó lépés” jelzőt (`mamuthka: …` sorok a kmsg-ben); az összegzés a
+    recovery indítóképernyőjén 20 mp-ig látszik, és a *Diagnosztika*
+    menüben is. A nyomokat a telepített rendszer `/var/log/mamuthka/`
+    mappájába is menti (recovery és initramfs egyaránt).
+  - A recovery NEM köti le többé az fbcon-t, csak `dmesg -n 1`: így a pánik
+    szövege a felületre íródik.
+  - `/sbin/poweroff|reboot|halt` a ramdiskekben (a hővédelmi
+    `orderly_poweroff` ezt hívja).
 
 ## Build / release
 
@@ -74,19 +87,17 @@ Készülék Letöltés módból beolvasott állapota:
 
 ## Következő lépések (prioritás szerint)
 
-1. **Flash-teszt a mostani (recovery_dtbo nélküli) recovery.img-mel.**
-   Ha loopol → tovább a 2-re.
-2. **Watchdog-kezelés** (valószínű javítás): a `recovery/init` és a fő
-   `initramfs/init` nyissa meg és háttérben pöcögtesse a `/dev/watchdog`-ot
-   (vagy magic-close `V`-vel tiltsa; `NOWAYOUT` nincs bekapcsolva). Még NINCS
-   implementálva – szándékosan kihagyva, hogy a recovery_dtbo-teszt tiszta legyen.
-3. **pstore/ramoops** bekapcsolása a kernelben + a recovery mentse ki a
-   `/sys/fs/pstore/console-ramoops`-ot. Ez ad post-mortem naplót microSD/UART
-   nélkül – a bootloop valódi okának megfogására.
-4. Bluetooth-patch (`hci_sock_create()` ki van ürítve a Samsung kernelben;
-   `# CONFIG_BT is not set`).
+1. **Flash-teszt az új boot.img + recovery.img-gel.** Ha a recovery megint
+   újraindul: a következő induláskor az indítóképernyő kiírja az okot
+   (KPON = kernelpánik, WPON = watchdog, TPON = hő, MPON = gombos reset) és
+   a pánik első sorait → **fotó**. Ha a telefon 30 mp-ig áll egy
+   szöveges hibaképernyőn, az maga a pánik → **fotó**.
+2. A fotó alapján a tényleges hibás driver javítása (várhatóan USB gadget /
+   dwc3, vagy DECON). A `mamuthka: USB …` jelzők mutatják, melyik lépésnél.
+3. Ha a rendszer már indul: `journalctl -b` és `/var/log/mamuthka/`.
+4. Bluetooth-patch (`hci_sock_create()` ki van ürítve; `# CONFIG_BT is not set`).
 5. Base `dtb.img` board-illesztés ellenőrzése
-   (`devices/samsung-a51/kernel/exynos9611.cfg`: `custom0=0 custom1=0xff`).
+   (`exynos9611.cfg`: `custom0=0 custom1=0xff`).
 
 ## Egyéb várható hibák (előzetes)
 

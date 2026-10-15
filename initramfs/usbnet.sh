@@ -7,6 +7,9 @@
 setup_usb_network() {
 	[ -e /tmp/.usb_done ] && return
 	touch /tmp/.usb_done
+	# Jelzők a kernelnaplóba: ha az USB-beállítás közben omlik össze a kernel,
+	# a következő indításkor a pstore-ból látszik, melyik lépésnél.
+	km() { echo "mamuthka: USB $*" > /dev/kmsg 2>/dev/null; }
 
 	SYS=/sys/class/android_usb/android0
 	if [ -e "$SYS" ]; then
@@ -29,6 +32,7 @@ setup_usb_network() {
 	echo "USB: UDC='${UDC:-nincs}' ($((n * 2 / 10)) mp várakozás), configfs: $([ -d /config/usb_gadget ] && echo van || echo NINCS)"
 	if [ -d /config/usb_gadget ] && [ -n "$UDC" ]; then
 		echo "USB: configfs ($UDC)"
+		km "configfs gadget létrehozása ($UDC)"
 		mkdir -p "$G/strings/0x409"
 		echo "$USB_ID_VENDOR" > "$G/idVendor"
 		echo "$USB_ID_PRODUCT" > "$G/idProduct"
@@ -41,8 +45,11 @@ setup_usb_network() {
 		mkdir -p "$G/configs/c.1/strings/0x409"
 		echo "USB network" > "$G/configs/c.1/strings/0x409/configuration"
 		ln -s "$G/functions/$FUNC" "$G/configs/c.1/" 2>/dev/null
+		km "funkció: $FUNC"
 		[ -n "$(cat "$G/UDC")" ] && echo "" > "$G/UDC"
+		km "UDC bekötése"
 		echo "$UDC" > "$G/UDC"
+		km "UDC bekötve"
 	fi
 
 	sleep 1
@@ -53,6 +60,7 @@ setup_usb_network() {
 		fi
 	done
 	echo "USB: interfész $IFACE, IP $USB_NET_IP"
+	km "interfész $IFACE kész"
 	# Egyetlen kliensnek oszt címet.
 	cat > /tmp/udhcpd.conf <<-EOF
 		start $USB_NET_CLIENT_IP

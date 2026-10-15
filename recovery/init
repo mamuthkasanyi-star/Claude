@@ -2,6 +2,8 @@
 # Mamuthka Recovery – init
 /bin/busybox --install -s /bin
 export PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
+# A kernel az /sbin/poweroff-ot hívja (pl. hővédelmi orderly_poweroff).
+for c in poweroff reboot halt; do [ -e /sbin/$c ] || ln -s /bin/busybox /sbin/$c; done
 
 mount -t proc -o nodev,noexec,nosuid proc /proc
 mount -t sysfs -o nodev,noexec,nosuid sysfs /sys
@@ -11,54 +13,64 @@ mount -t devpts devpts /dev/pts
 mount -t configfs configfs /config 2>/dev/null
 mount -t tmpfs tmpfs /tmp
 mount -t tmpfs tmpfs /run
-mount -t pstore pstore /sys/fs/pstore 2>/dev/null
 
 . /etc/mamuthka/recovery.conf
 . /lib/mamuthka/usbnet.sh
 . /lib/mamuthka/watchdog.sh
+. /lib/mamuthka/diag.sh
 
 exec >>/tmp/recovery.log 2>&1
 echo "Mamuthka Recovery – $(uname -r)"
 cat /proc/cmdline
-
-# Elsőként: a watchdogok pöcögtetése, különben a telefon pár mp/perc múlva
-# újraindul (bootloop).
-start_watchdogs
+kmark "recovery init indul ($(uname -r))"
 
 # A napló a kernel naplójába is megy, így egy összeomlás/újraindulás után a
-# következő indításkor a /proc/last_kmsg-ben (pstore) is látszik.
+# következő indításkor a pstore-ban / /proc/last_kmsg-ben is látszik.
 (tail -n +1 -f /tmp/recovery.log | while IFS= read -r l; do
 	echo "mamuthka-recovery: $l" > /dev/kmsg
 done) 2>/dev/null &
 
-# Az előző indítás összeomlásának/újraindulásának nyomai (Samsung sec_debug, pstore).
-D=/tmp/elozo-inditas
-mkdir -p "$D"
-for f in /proc/reset_reason /proc/reset_summary /proc/auto_comment /proc/reset_rwc \
-	/proc/extra /proc/last_kmsg /sys/fs/pstore/*; do
-	[ -r "$f" ] && cat "$f" > "$D/$(echo "${f#/}" | tr / _)" 2>/dev/null
-done
-ls -la "$D"
-for f in "$D"/proc_reset_reason "$D"/proc_auto_comment; do
-	[ -s "$f" ] && { echo "== $f"; head -c 600 "$f"; echo; }
-done
+start_watchdogs
 
-# A szöveges konzol (fbcon) ne rajzoljon a felületre.
+# Az előző indítás összeomlásának/újraindulásának nyomai.
+collect_prev_boot
+ls -la "$DIAG_DIR"
+cat "$DIAG_DIR/osszegzes.txt"
+
+# A szöveges konzol maradjon a framebufferen, de csak a vészüzenetek (pánik)
+# jelenjenek meg rajta: így egy kernelpánik szövege a felületre íródik, és
+# 30 mp-ig (CONFIG_PANIC_TIMEOUT) lefotózható.
 dmesg -n 1
-for v in /sys/class/vtconsole/vtcon*/bind; do
-	grep -q "frame buffer" "${v%/bind}/name" 2>/dev/null && echo 0 > "$v"
-done
+kmark "képernyő"
 
 # Az előző újraindulás oka a képernyőn (lefotózható, ha a recovery megint újraindulna).
-reason="$(head -c 40 "$D/proc_reset_reason" 2>/dev/null | tr -d '\n')"
-comment="$(head -c 200 "$D/proc_auto_comment" 2>/dev/null | tr '\n' ' ')"
-rui status "Indítás…" "USB: telnet $USB_NET_IP\nElőző újraindulás: ${reason:-?}\n$comment" &
+# (a rui a "\n" jelsorozatot sortörésként értelmezi)
+rui status "Indítás…" "USB: telnet $USB_NET_IP\n\n$(awk '{printf "%s\\n", $0}' "$DIAG_DIR/osszegzes.txt")" &
 
+# A kimentett nyomok a telepített rendszer /var/log/mamuthka mappájába is
+# bekerülnek (újraindulás után is megmaradnak, a rendszerből is olvashatók).
+dev=""
+for u in /sys/class/block/*/uevent; do
+	if grep -qix "PARTNAME=$ROOTFS_PARTNAME" "$u"; then
+		dev="/dev/$(sed -n 's/^DEVNAME=//p' "$u")"; break
+	fi
+done
+if [ -n "$dev" ] && mount -t ext4 "$dev" /sysroot 2>/dev/null; then
+	if [ -d /sysroot/var/log ]; then
+		d="$(persist_prev_boot /sysroot/var/log/mamuthka)" && echo "Előző indítás nyomai mentve: $d"
+	fi
+	umount /sysroot
+fi
+
+kmark "USB-hálózat"
 setup_usb_network
 # A recovery-ben a hibakereső shell mindig elérhető USB-kábelen.
 telnetd -b "$USB_NET_IP:23" -l /bin/sh
-[ -n "$comment" ] && sleep 4
+kmark "telnetd fut"
+# Összeomlás után az ok maradjon olvashatóan a képernyőn egy ideig.
+if prev_boot_crashed; then sleep 20; elif [ -s "$DIAG_DIR/proc_auto_comment" ]; then sleep 6; fi
 
+kmark "menü"
 while :; do
 	/usr/bin/mamuthka-recovery
 	echo "A recovery menü kilépett ($?), újraindítom"
