@@ -8,6 +8,11 @@ set -o pipefail 2>/dev/null
 
 GCP=/usr/libexec/gnu/cp     # GNU cp (xattr/capability megőrzéssel)
 GTAR=/usr/libexec/gnu/tar   # GNU tar (xattr/ACL)
+# GNU wget TELJES útvonallal: a busybox ash a beépített (applet) wget-et
+# futtatná, az pedig nem ismeri a --ca-certificate kapcsolót → minden letöltés
+# és az internet-ellenőrzés is hibával állt meg (hibak.txt 57.).
+WGET=/usr/bin/wget
+CA=/etc/ssl/certs/ca-certificates.crt
 WORK=/tmp/mr
 mkdir -p "$WORK"
 
@@ -87,13 +92,34 @@ wifi_iface() {
 }
 
 wifi_online() {
-	ip route | grep -q '^default' && wget -q -T 8 --ca-certificate=/etc/ssl/certs/ca-certificates.crt --spider "https://api.github.com" 2>/dev/null
+	ip route | grep -q '^default' || { log "Wi-Fi: nincs alapértelmezett útvonal"; return 1; }
+	$WGET -q -T 8 --tries=1 --ca-certificate=$CA --spider "https://api.github.com" >> /tmp/recovery.log 2>&1 && return 0
+	log "Wi-Fi: van IP-cím, de az internet nem érhető el (wget kód: $?)"
+	return 1
 }
 
-wifi_connect() { # SSID JELSZÓ
+# Ha a telnet nem zárható az USB-re (recovery/init: usb_only), Wi-Fi előtt leáll.
+wifi_guard() {
+	[ -e /tmp/.telnet_unsafe ] || return 0
+	killall telnetd 2>/dev/null && log "telnet leállítva (Wi-Fi bekapcsolás, nincs USB-elszigetelés)"
+}
+
+# Wi-Fi ki: nem fogyaszt, és nem marad régi cím/útvonal.
+wifi_off() {
+	iface="$(wifi_iface)" || return 0
+	killall wpa_supplicant udhcpc 2>/dev/null
+	ip addr flush dev "$iface" 2>/dev/null
+	ip link set "$iface" down 2>/dev/null
+	log "Wi-Fi kikapcsolva ($iface)"
+}
+
+# Kilépési kód: 0 = kész, 1 = nem csatlakozott (jelszó/hálózat), 2 = nincs DHCP-cím
+wifi_connect() { # IFACE SSID JELSZÓ
 	iface="$1"; ssid="$2"; psk="$3"
 	esc_ssid="$(printf '%s' "$ssid" | sed 's/\\/\\\\/g; s/"/\\"/g')"
 	esc_psk="$(printf '%s' "$psk" | sed 's/\\/\\\\/g; s/"/\\"/g')"
+	wifi_guard
+	umask 077
 	{
 		echo "ctrl_interface=/run/wpa_supplicant"
 		echo "network={"
@@ -102,15 +128,40 @@ wifi_connect() { # SSID JELSZÓ
 		if [ -n "$psk" ]; then echo "  psk=\"$esc_psk\""; else echo "  key_mgmt=NONE"; fi
 		echo "}"
 	} > "$WORK/wpa.conf"
+	umask 022
 	killall wpa_supplicant udhcpc 2>/dev/null
-	wpa_supplicant -B -i "$iface" -D nl80211 -c "$WORK/wpa.conf" >> /tmp/recovery.log 2>&1
+	ip addr flush dev "$iface" 2>/dev/null
+	# A wpa_supplicant naplója (-f, alap szint): állapotesemények, jelszó NINCS benne.
+	rm -f "$WORK/wpa.log"
+	wpa_supplicant -B -i "$iface" -D nl80211 -c "$WORK/wpa.conf" -f "$WORK/wpa.log" >> /tmp/recovery.log 2>&1
 	n=0
 	while [ $n -lt 30 ]; do
 		wpa_cli -p /run/wpa_supplicant -i "$iface" status 2>/dev/null | grep -q 'wpa_state=COMPLETED' && break
 		n=$((n + 1)); sleep 1
 	done
-	[ $n -lt 30 ] || return 1
-	udhcpc -i "$iface" -n -q -t 10 -s /usr/share/udhcpc/default.script >> /tmp/recovery.log 2>&1
+	grep -aE 'CTRL-EVENT|WRONG_KEY|Associated|authentication|handshake' "$WORK/wpa.log" 2>/dev/null | tail -n 8 |
+		sed 's/^/wpa: /' >> /tmp/recovery.log
+	if [ $n -ge 30 ]; then
+		log "Wi-Fi: nem csatlakozott ($(wpa_cli -p /run/wpa_supplicant -i "$iface" status 2>/dev/null | grep '^wpa_state='))"
+		return 1
+	fi
+	log "Wi-Fi: csatlakozva, DHCP…"
+	udhcpc -i "$iface" -n -q -t 10 -s /usr/share/udhcpc/default.script >> /tmp/recovery.log 2>&1 || return 2
+	return 0
+}
+
+# Hibaüzenet a wifi_connect kódja és az internet-próba alapján
+wifi_fail_msg() { # SSID KÓD
+	case "$2" in
+		1)
+			if grep -qa 'WRONG_KEY' "$WORK/wpa.log" 2>/dev/null; then
+				msg "Wi-Fi" "Hibás jelszó ($1)."
+			else
+				msg "Wi-Fi" "Nem sikerült csatlakozni ($1).\nEllenőrizd a jelszót és a jelerősséget."
+			fi ;;
+		2) msg "Wi-Fi" "Csatlakozva ($1), de nem kaptam IP-címet (DHCP)." ;;
+		*) msg "Wi-Fi" "Csatlakozva ($1), de az internet nem érhető el.\nEllenőrizd a router internetkapcsolatát." ;;
+	esac
 }
 
 # A telepített rendszer NetworkManager kapcsolataiból próbál csatlakozni.
@@ -141,6 +192,7 @@ ensure_wifi() {
 		sleep 3
 		iface="$(wifi_iface)" || { fail "Nincs Wi-Fi eszköz (a firmware nem töltődött be?)."; return 1; }
 	fi
+	wifi_guard
 	ip link set "$iface" up 2>>/tmp/recovery.log
 	wifi_from_system "$iface" && return 0
 
@@ -166,14 +218,18 @@ ensure_wifi() {
 		elif [ "$sel" -eq $((cnt + 1)) ]; then
 			continue
 		else
+			wifi_off
 			return 1
 		fi
 		psk="$(rui input "Jelszó: $ssid" --password)"
 		status "Wi-Fi" "Csatlakozás: $ssid…"
-		if wifi_connect "$iface" "$ssid" "$psk" && wifi_online; then
-			return 0
+		wifi_connect "$iface" "$ssid" "$psk"
+		rc=$?
+		if [ $rc -eq 0 ]; then
+			wifi_online && return 0
+			rc=3
 		fi
-		msg "Wi-Fi" "Nem sikerült csatlakozni ($ssid).\nEllenőrizd a jelszót."
+		wifi_fail_msg "$ssid" $rc
 	done
 }
 
@@ -181,7 +237,7 @@ ensure_wifi() {
 REL_URL() { echo "https://github.com/$RELEASE_REPO/releases/download/$DEV_TAG/$1"; }
 
 fetch() { # név → $WORK/név
-	wget -q -T 30 --ca-certificate=/etc/ssl/certs/ca-certificates.crt -O "$WORK/$1" "$(REL_URL "$1")"
+	$WGET -q -T 30 --tries=3 --ca-certificate=$CA -O "$WORK/$1" "$(REL_URL "$1")"
 }
 
 # A kiadás leíróinak letöltése: manifest.txt (fájl méret), SHA256SUMS
@@ -202,7 +258,8 @@ stream_rootfs() { # cél
 	mkfifo "$WORK/sha.fifo"
 	sha256sum < "$WORK/sha.fifo" > "$WORK/sha.out" &
 	shapid=$!
-	(for p in $PARTS; do wget -q -T 60 --ca-certificate=/etc/ssl/certs/ca-certificates.crt -O - "$(REL_URL "$p")" || exit 1; done) |
+	# --tries=1: -O - mellett egy újrapróbálás az elejéről fűzné hozzá a részt
+	(for p in $PARTS; do $WGET -q -T 60 --tries=1 --ca-certificate=$CA -O - "$(REL_URL "$p")" || exit 1; done) |
 		zstd -d -c | tee "$WORK/sha.fifo" | rui pipe "Rendszer letöltése és telepítése" "$ROOT_SIZE" |
 		dd of="$1" bs=4M 2>>/tmp/recovery.log
 	rc=$?
@@ -247,7 +304,7 @@ do_install() {
 		rui ask "Tiszta telepítés" "Felismert eszköz: $DEV_NAME\n\nA telefon adatpartíciója TELJESEN törlődik, majd letöltöm és telepítem a Mamuthka linuxot.\n\nFolytatod?" || return 0
 	fi
 	ensure_wifi || return 1
-	fetch_meta || return 1
+	fetch_meta || { wifi_off; return 1; }
 	rootdev="$(root_dev)" || { fail "Nincs $ROOTFS_PARTNAME partíció"; return 1; }
 
 	if [ $mode = clean ]; then
@@ -303,7 +360,8 @@ do_install() {
 		rm -rf "$keep"
 		umount_root
 	fi
-	install_boot || return 1
+	install_boot || { wifi_off; return 1; }
+	wifi_off
 	msg "Kész!" "A Mamuthka linux ${VERSION:-} telepítve: $DEV_NAME.\n\nAz Újraindítás után elindul a rendszer.\nKezdő jelszó (tiszta telepítésnél): 1234"
 }
 
@@ -485,13 +543,23 @@ menu_power() {
 # --------------------------------------------------------- diagnosztika ---
 show_diag() {
 	D=/tmp/elozo-inditas
-	t="$(awk '{printf "%s\\n", $0}' "$D/osszegzes.txt" 2>/dev/null)"
-	t="$t\nWatchdog: $(ls /dev/watchdog* 2>/dev/null | tr '\n' ' ')(nem élesítve)"
-	t="$t\nUSB-vezérlő: $(ls /sys/class/udc 2>/dev/null | head -1)"
-	t="$t\nHő: $(awk -F': ' '{printf "%s=%d ", substr($1,1,6), $2/1000}' "$D/homerseklet.txt" 2>/dev/null | cut -c1-110)"
-	t="$t\n\nNapló vége:\n$(grep -v '^ *$' /tmp/recovery.log | tail -n 10 | cut -c1-60)"
-	t="$t\n\nFájlok: $D, a rendszeren /var/log/mamuthka/"
-	msg "Diagnosztika" "$t"
+	f="$WORK/diag.txt"
+	{
+		cat "$D/osszegzes.txt" 2>/dev/null
+		echo "Watchdog: $(ls /dev/watchdog* 2>/dev/null | tr '\n' ' ')(nem élesítve)"
+		echo "USB-vezérlő: $(ls /sys/class/udc 2>/dev/null | head -1)"
+		echo "Hő: $(awk -F': ' '{printf "%s=%d ", substr($1,1,6), $2/1000}' "$D/homerseklet.txt" 2>/dev/null)"
+		b=/sys/class/power_supply/battery
+		echo "Akku: $(cat $b/capacity 2>/dev/null)% $(cat $b/status 2>/dev/null), $(( $(cat $b/current_now 2>/dev/null || echo 0) )) mA"
+		echo "Fájlok: $D, a rendszeren /var/log/mamuthka/"
+		echo
+		echo "===== Kernelnapló (utolsó 150 sor) ====="
+		dmesg 2>/dev/null | tail -n 150
+		echo
+		echo "===== Recovery-napló (/tmp/recovery.log) ====="
+		grep -v '^ *$' /tmp/recovery.log
+	} > "$f" 2>&1
+	rui view "Diagnosztika (napló)" "$f"
 }
 
 # ------------------------------------------------------------- főmenü ---
@@ -500,7 +568,7 @@ head="Mamuthka linux telepítése"
 installed && head="Mamuthka linux telepítése / frissítése"
 umount_root
 while :; do
-	sel="$(rui menu "${DEV_NAME:-Ismeretlen eszköz} · USB: $USB_NET_IP" \
+	sel="$(rui menu "${DEV_NAME:-Ismeretlen eszköz}\nUSB: $USB_NET_IP" \
 		"$head" \
 		"Javítás" \
 		"Mentés / visszaállítás (microSD)" \

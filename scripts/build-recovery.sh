@@ -69,6 +69,11 @@ build_ramdisk() {
 	log "Recovery: Wi-Fi firmware"
 	mkdir -p "$RD$FIRMWARE_DIR"
 	cp -a "$ROOTFS$FIRMWARE_DIR/." "$RD$FIRMWARE_DIR/"
+	# A Wi-Fi országkód-adatbázisa (a driver fix útvonalon keresi)
+	if [ -f "$ROOTFS/vendor/etc/wifi/slsi_reg_database.bin" ]; then
+		mkdir -p "$RD/vendor/etc/wifi"
+		cp "$ROOTFS/vendor/etc/wifi/slsi_reg_database.bin" "$RD/vendor/etc/wifi/"
+	fi
 
 	log "Recovery: scriptek"
 	install -m755 "$ROOT_DIR/recovery/init" "$RD/init"

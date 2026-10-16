@@ -64,10 +64,13 @@ collect_prev_boot() {
 		"$DIAG_DIR"/proc_last_kmsg 2>/dev/null)"
 	: > "$DIAG_DIR/panik.txt"
 	if [ -n "$logs" ]; then
-		# Az első végzetes sor és a rá következő 12 (regiszterek, hívási lánc)
+		# Az első végzetes sor és a rá következő 12 (regiszterek, hívási lánc).
+		# Csak kernel-időbélyeges sor számít: a last_kmsg elején a bootloader
+		# (S-Boot) saját naplója és bináris szemét is van, amelyben pl. a
+		# „Hard Reset” szó előfordul → téves „Pánik” (hibak.txt 58.).
 		# shellcheck disable=SC2086
 		cat $logs | grep -av 'mamuthka-recovery: ' | grep -a -m1 -A12 -E \
-			'Kernel panic|Internal error|Unable to handle kernel|BUG: |Bad mode|Hard Reset|Watchdog Timer expired|Temperature too high|Attempting .*emergency' \
+			'\[ *[0-9]+\.[0-9]{6}\].*(Kernel panic|Internal error|Unable to handle kernel|BUG: |Bad mode|Hard Reset|Watchdog Timer expired|Temperature too high|Attempting .*emergency)' \
 			> "$DIAG_DIR/panik.txt" 2>/dev/null
 		# Az indítás utolsó saját lépése az előző körben
 		# shellcheck disable=SC2086

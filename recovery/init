@@ -13,6 +13,8 @@ mount -t devpts devpts /dev/pts
 mount -t configfs configfs /config 2>/dev/null
 mount -t tmpfs tmpfs /tmp
 mount -t tmpfs tmpfs /run
+hostname mamuthka-recovery
+ip link set lo up
 
 . /etc/mamuthka/recovery.conf
 . /lib/mamuthka/usbnet.sh
@@ -67,7 +69,34 @@ fi
 
 kmark "USB-hálózat"
 setup_usb_network
-# A recovery-ben a hibakereső shell mindig elérhető USB-kábelen.
+# A jelszó nélküli root-telnet CSAK az USB-kábelen legyen elérhető. A -b
+# önmagában nem elég: a Linux a helyi címre bármely interfészen érkező csomagot
+# elfogadja (weak host), így a Wi-Fi-hálózatból egy 172.16.42.1-re mutató
+# útvonallal a telnet elérhető lenne. Ezért a más interfészről (Wi-Fi, modem)
+# az USB-alhálózatra érkező csomagokat a házirend-útválasztás eldobja
+# (prohibit); az USB-n és a helyben keletkezett forgalom változatlan.
+# (Tesztelve veth-párokkal, busybox ip-vel: hibak.txt 57.)
+usb_only() {
+	net="${USB_NET_IP%.*}.0/24"
+	ip route add prohibit "$net" table 99 &&
+	ip rule add pref 50 iif "${IFACE:-usb0}" lookup local &&
+	ip rule add pref 51 iif lo lookup local &&
+	ip rule add pref 52 iif lo lookup main &&
+	ip rule add pref 60 lookup 99 &&
+	ip rule add pref 100 lookup local &&
+	ip rule del pref 0 && return 0
+	# Ha bármi nem sikerült, a szabályok visszaállnak.
+	for p in 50 51 52 60 100; do ip rule del pref $p 2>/dev/null; done
+	ip rule add pref 0 lookup local 2>/dev/null
+	return 1
+}
+if ! usb_only; then
+	# Tartalék: a telnet fut (USB-s hibakereséshez), de a Wi-Fi bekapcsolása
+	# előtt a recovery leállítja (mamuthka-recovery: wifi_guard).
+	echo "FIGYELEM: az USB-elszigetelés nem állítható be; Wi-Fi esetén a telnet leáll"
+	touch /tmp/.telnet_unsafe
+fi
+# A recovery-ben a hibakereső shell elérhető USB-kábelen.
 telnetd -b "$USB_NET_IP:23" -l /bin/sh
 kmark "telnetd fut"
 # Összeomlás után az ok maradjon olvashatóan a képernyőn egy ideig.
