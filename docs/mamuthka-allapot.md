@@ -54,6 +54,19 @@ parancsmódot és 2592000 B framebuffert kap. A boot.img DT-táblájának
 és a pmOS is 0x000000ff, és a naplóban az UFDT a DTB- és a DTBO-bejegyzést is
 megtalálta („DT Overlay Complete!"). Részletek: hibak.txt 51–53.
 
+## 2. hiba (2026-10-16 este, a 038e399 flash után): USB ifname-Oops
+
+A kijelző már működik (a recovery_dtbo-javítás bevált), de 3,7 mp-nél
+kernel-Oops → újraindulás. Ok: a config-base `CONFIG_USB_ETH=y` miatt a beépített
+**g_ether** már 1,06 mp-nél lefoglalja az UDC-t; a configfs-gadget UDC-bekötése
+hibával tér vissza, az ncm sosem bindol (`opts->net == NULL`), és a usbnet.sh
+`cat functions/*/ifname` sora `gether_get_ifname(NULL)`-t hív → Oops →
+PANIC_ON_OOPS. Javítás: 0008 kernelpatch (NULL-védelem minden u_ether
+configfs-segédben), a usbnet.sh és a rootfs usb-network a `/sys/class/net`
+alapján keresi az interfészt, és foglalt UDC-nél nem hozza létre a
+configfs-gadgetet. Hálózat ezután a g_ether `usb0`-ján (RNDIS) – a gép ezt
+már látta. Részletek: hibak.txt 54–55.
+
 ## Diagnózis és eddigi lépések (korábbi)
 
 1. Nem aláírás/zár gond (custom elfogadva).
@@ -112,9 +125,17 @@ megtalálta („DT Overlay Complete!"). Részletek: hibak.txt 51–53.
   - `flash-a51.sh`: `HEIMDALL=` változó, sparse rootfs (img2simg),
     figyelmeztetés 2.0.x heimdall esetén (USERDATA-időtúllépés).
 
+- **USB ifname-Oops javítás (2026-10-16 este):**
+  `0008-usb-u_ether-configfs-attributes-must-not-oops-on-unbound-ncm.patch`; `initramfs/usbnet.sh`
+  (initramfs + recovery) és `rootfs/.../usb-network` nem olvas ifname-et,
+  `/sys/class/net/*/device → …/gadget` alapján keres; foglalt UDC (g_ether)
+  esetén a configfs kimarad, a `b_sess=1` mindkét esetben megy.
+
 ## Build / release
 
-- Utolsó build: run 38808409340 (`09a47f0`), **conclusion: success**
+- Run 38966758573 (`038e399`, recovery_dtbo + 0007): **success**, a kijelző a
+  telefonon igazoltan működik.
+- Korábbi build: run 38808409340 (`09a47f0`), **conclusion: success**
   (2026-10-15 21:28Z). Az `a51-teszt` release frissült az új recovery.img-mel.
 - A workflow minden push után (nem `.md`) automatikusan buildel és az
   `a51-teszt` prerelease-be teszi a fájlokat.
@@ -127,7 +148,12 @@ megtalálta („DT Overlay Complete!"). Részletek: hibak.txt 51–53.
 
 ## Következő lépések (prioritás szerint)
 
-0. **Az új recovery.img a RECOVERY partícióra** (ez javítja a recovery-hurkot),
+0. **A legújabb boot.img a BOOT-ra és recovery.img a RECOVERY-re** (mindkettőben
+   benne van az ifname-javítás; a USERDATA-rootfs usb-network szkriptje is
+   változott, de az csak a teljes rendszerindításnál számít, az initramfs-hurkot
+   a boot.img egyedül javítja). Várható: a gépen RNDIS-eszköz (g_ether) marad,
+   `ping 172.16.42.1`.
+   Korábbi pont: **Az új recovery.img a RECOVERY partícióra** (ez javítja a recovery-hurkot),
    az új boot.img a BOOT-ra. A DTBO partíciót NEM kell írni (a gyári jó).
    USERDATA csak sparse képpel és 120 s timeoutos heimdall 2.2.x-szel.
    Ellenőrzés: a recovery-ben `dmesg | grep -i "machine model\|resolution"`

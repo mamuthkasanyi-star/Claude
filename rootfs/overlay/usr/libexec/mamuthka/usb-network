@@ -1,11 +1,23 @@
 #!/bin/bash
-# Az initramfs már beállította a USB-gadgetet (NCM vagy RNDIS) és az IP-t.
+# Az initramfs már beállította a USB-gadgetet (g_ether, NCM vagy RNDIS) és az IP-t.
 # Itt csak megkeressük az interfészt, és DHCP-t indítunk a gép felé.
 set -u
+# Az interfészt a /sys/class/net alapján keressük (az a hálózati eszköz, amelynek
+# a device-a a USB-gadget; ez a beépített g_ether usb0-ja vagy a configfs
+# ncm/rndis). A configfs "ifname" attribútumát NEM olvassuk: bindolatlan ncm-nél
+# ez kernel-Oopsot okozott (gether_get_ifname NULL net, hibak.txt 54.).
 iface=""
-for i in $(cat /sys/kernel/config/usb_gadget/g1/functions/*/ifname 2>/dev/null) usb0 rndis0 ncm0; do
-	[ -e "/sys/class/net/$i" ] && { iface="$i"; break; }
+for d in /sys/class/net/*; do
+	[ -e "$d" ] || continue
+	case "$(readlink -f "$d/device" 2>/dev/null)" in
+		*/gadget) iface="${d##*/}"; break ;;
+	esac
 done
+if [ -z "$iface" ]; then
+	for i in usb0 rndis0 ncm0; do
+		[ -e "/sys/class/net/$i" ] && { iface="$i"; break; }
+	done
+fi
 if [ -z "$iface" ]; then
 	echo "Nincs USB-hálózati interfész (a gadget nem jött létre)."
 	exit 1

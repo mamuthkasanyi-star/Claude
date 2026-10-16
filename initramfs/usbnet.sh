@@ -1,8 +1,25 @@
 # shellcheck shell=sh
-# USB-hálózat a telefon és a gép között (NCM, ha nem megy: RNDIS).
+# USB-hálózat a telefon és a gép között: a beépített g_ether (RNDIS/ECM, usb0),
+# ha az foglalja az UDC-t; különben configfs NCM, ha nem megy: RNDIS.
 # Ugyanaz a sorrend, mint a postmarketOS initramfs-ben, mert ezzel a
 # kernellel az bizonyítottan működik. Változók: USB_ID_VENDOR, USB_ID_PRODUCT,
 # USB_NET_IP, USB_NET_CLIENT_IP, USB_PRODUCT_NAME.
+
+# A USB-gadget hálózati interfésze (pl. usb0, rndis0, ncm0) a /sys/class/net
+# alapján: elsőként az, amelynek a device-a a gadget; ha ilyen nincs, a szokásos
+# nevek közül az első létező. Kimenet: az interfész neve (vagy üres).
+usb_gadget_iface() {
+	for d in /sys/class/net/*; do
+		[ -e "$d" ] || continue
+		case "$(readlink -f "$d/device" 2>/dev/null)" in
+			*/gadget) echo "${d##*/}"; return 0 ;;
+		esac
+	done
+	for i in usb0 rndis0 ncm0; do
+		[ -e "/sys/class/net/$i" ] && { echo "$i"; return 0; }
+	done
+	return 1
+}
 
 setup_usb_network() {
 	[ -e /tmp/.usb_done ] && return
@@ -30,7 +47,16 @@ setup_usb_network() {
 	done
 	UDC="$(ls /sys/class/udc 2>/dev/null | head -1)"
 	echo "USB: UDC='${UDC:-nincs}' ($((n * 2 / 10)) mp várakozás), configfs: $([ -d /config/usb_gadget ] && echo van || echo NINCS)"
-	if [ -d /config/usb_gadget ] && [ -n "$UDC" ]; then
+	# A kernelbe épített g_ether (CONFIG_USB_ETH=y) már 1 mp-nél lefoglalja az
+	# UDC-t (RNDIS + CDC ECM, usb0 interfész). Ilyenkor a configfs-gadget
+	# UDC-bekötése úgyis hibával tér vissza, az ncm-funkció sosem bindol – ezért
+	# hozzá sem nyúlunk (hibak.txt 54.).
+	BUSY=""
+	[ -n "$UDC" ] && BUSY="$(cat "/sys/class/udc/$UDC/function" 2>/dev/null)"
+	if [ -n "$BUSY" ]; then
+		echo "USB: az UDC-t már a beépített '$BUSY' gadget használja (configfs kihagyva)"
+		km "UDC foglalt: $BUSY (beépített gadget, configfs kihagyva)"
+	elif [ -d /config/usb_gadget ] && [ -n "$UDC" ]; then
 		echo "USB: configfs ($UDC)"
 		km "configfs gadget létrehozása ($UDC)"
 		mkdir -p "$G/strings/0x409"
@@ -48,13 +74,18 @@ setup_usb_network() {
 		km "funkció: $FUNC"
 		[ -n "$(cat "$G/UDC")" ] && echo "" > "$G/UDC"
 		km "UDC bekötése"
-		echo "$UDC" > "$G/UDC"
-		km "UDC bekötve"
+		if echo "$UDC" > "$G/UDC"; then
+			km "UDC bekötve"
+		else
+			km "UDC bekötése SIKERTELEN"
+		fi
+	fi
+	if [ -n "$UDC" ]; then
 		# A Samsung dwc3-otg a gadgetet csak akkor indítja el (PHY, RUN/STOP),
 		# ha a VBUS-session jelző 1; ezt Androidon az usb_notify lánc állítja
 		# (10 mp indítási késleltetéssel). Itt közvetlenül állítjuk a driver
 		# sysfs kapcsolójával (drivers/usb/dwc3/otg.c: b_sess) – enélkül a
-		# gépen soha nem jelenik meg az USB-eszköz.
+		# gépen soha nem jelenik meg az USB-eszköz. A beépített g_ether-nek is kell.
 		B_SESS="/sys/class/udc/$UDC/device/b_sess"
 		if [ -w "$B_SESS" ]; then
 			km "b_sess=1"
@@ -66,9 +97,17 @@ setup_usb_network() {
 		fi
 	fi
 
-	sleep 1
-	IFACE="$(cat "$G/functions/"*/ifname 2>/dev/null | head -1)"
-	for i in $IFACE rndis0 usb0; do
+	# Az interfészt a /sys/class/net alapján keressük: az a gadget-hálózati
+	# eszköz, amelynek a "device"-a a USB-gadget. A configfs "ifname"
+	# attribútumát NEM olvassuk: bindolatlan ncm-nél ez kernel-Oopsot okozott
+	# (gether_get_ifname, NULL net → PANIC_ON_OOPS → bootloop, hibak.txt 54.).
+	IFACE=""
+	n=0
+	while [ $n -lt 15 ] && [ -z "$IFACE" ]; do
+		IFACE="$(usb_gadget_iface)"
+		[ -n "$IFACE" ] || { n=$((n + 1)); sleep 0.2; }
+	done
+	for i in $IFACE usb0 rndis0 ncm0; do
 		if ifconfig "$i" "$USB_NET_IP" netmask 255.255.255.0 up 2>/dev/null; then
 			IFACE="$i"; break
 		fi

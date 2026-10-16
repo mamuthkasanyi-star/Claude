@@ -395,3 +395,34 @@ BOOTLOOP (2026-10-15 este, kernelforrás alapján)
     megy át. Az end-session a végén akadhat, ez ártalmatlan.
     → JAVÍTVA: flash-a51.sh: HEIMDALL= változó, img2simg-vel sparse rootfs,
       figyelmeztetés + megerősítés 2.0.x heimdall esetén.
+
+54. [SÚLYOS – A 038e399 UTÁNI BOOTLOOP] A kijelző már működik (Machine model REV02,
+    /s6e3fa9 1080×2400), de 3,7 mp-nél kernel-Oops → PANIC_ON_OOPS → újraindulás.
+    Bizonyíték (pstore, console-ramoops-0 + last_kmsg, mindhárom rögzített indítás):
+      1,06 s  "g_ether gadget: g_ether ready" – a config-base-ben CONFIG_USB_ETH=y,
+              a beépített legacy g_ether lefoglalja az UDC-t (RNDIS + CDC ECM, usb0);
+      2,69 s  "gadget_dev_desc_UDC_store: err return" – a configfs g1 UDC-bekötése
+              ezért hibával tér vissza, az ncm.usb0 sosem bindol;
+      3,08 s  "g_ether gadget: high-speed config #1: RNDIS" (a gép ezt látta ~6 mp-ig);
+      3,70 s  `cat functions/*/ifname` (usbnet.sh:70) → ncm_opts_ifname_show →
+              gether_get_ifname(NULL) → "Accessing user space memory with
+              fs=KERNEL_DS", PC gether_get_ifname+0x20, x22 (net) = 0.
+    A Samsung f_ncm az opts->net-et csak bind-kor hozza létre, és a hibaágakon lógó
+    mutatót hagy; a u_ether getter/setterek (dev_addr, host_addr, qmult, ifname)
+    egyike sem ellenőriz NULL-t.
+    → JAVÍTVA:
+      - 0008-usb-u_ether-configfs-attributes-must-not-oops-on-unbound-ncm.patch:
+        minden gether_get/set_* -ENODEV (ill. 0 / no-op) NULL vagy ERR_PTR net-re;
+        az f_ncm bind-hibaágai NULL-ra állítják az opts->net-et.
+      - initramfs/usbnet.sh (initramfs ÉS recovery): nem olvas configfs-ifname-et,
+        az interfészt a /sys/class/net/*/device → …/gadget alapján keresi (usb0,
+        rndis0, ncm0 tartalék); ha az UDC-t már a beépített gadget foglalja
+        (/sys/class/udc/<udc>/function nem üres), a configfs-gadgetet ki sem
+        hozza létre; a b_sess=1 mindkét esetben megy (a g_ether-nek is kell).
+      - rootfs usb-network: ugyanígy /sys/class/net alapján.
+    A 44. tétel pontosítása: az USB a b_sess óta felsorolódik, de a g_ether-rel.
+
+55. [INFO] A 038e399 naplójában 3,7 mp előtt nincs más végzetes hiba: tzdev rendben
+    ("Startuploader complete" 1,40 s), decon real_size=2592000, dsim parancsmód.
+    Ártalmatlan: abox "calliope_sram.bin" hiányzik (-2, csak hang), mip4_ts
+    "flash_fw [ERROR]" (a firmware már naprakész), Coresight/fimc DT-figyelmeztetések.

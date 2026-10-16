@@ -1,0 +1,145 @@
+From: Mamuthka linux
+Subject: [PATCH] usb: u_ether: configfs attributes must not oops on an unbound ncm
+
+The Samsung f_ncm only creates opts->net in ncm_bind().  If the configfs
+gadget is never bound (here: the built-in legacy g_ether already owns the
+UDC, so writing UDC fails with "gadget_dev_desc_UDC_store: err return"),
+opts->net stays NULL, and a plain `cat functions/ncm.usb0/ifname` ends in
+netdev_name(NULL):
+
+  Internal error: Accessing user space memory with fs=KERNEL_DS
+  PC is at gether_get_ifname+0x20/0x6c   (x22 = net = 0)
+  ncm_opts_ifname_show <- configfs_read_file <- SyS_sendfile64 (cat)
+
+With PANIC_ON_OOPS this is a reboot loop (SM-A515F, 3.7 s after boot).
+The other attributes (dev_addr, host_addr, qmult) go through netdev_priv()
+of the same NULL pointer and fault the same way.
+
+- u_ether: every gether_{get,set}_* helper returns -ENODEV (or does nothing
+  / reports 0) for a NULL or ERR_PTR net instead of dereferencing it.
+- f_ncm: clear opts->net on the bind error paths (ERR_PTR from
+  gether_setup, free_netdev after a failed register, gether_cleanup in
+  netdev_cleanup), so the attributes never see a dangling pointer.
+
+---
+diff --git a/drivers/usb/gadget/function/f_ncm.c b/drivers/usb/gadget/function/f_ncm.c
+index 5fa3e09..7e17f22 100644
+--- a/drivers/usb/gadget/function/f_ncm.c
++++ b/drivers/usb/gadget/function/f_ncm.c
+@@ -1422,6 +1422,7 @@ ncm_bind(struct usb_configuration *c, struct usb_function *f)
+ 		ncm_opts->net = gether_setup_name_default("ncm");
+ 		if (IS_ERR(ncm_opts->net)) {
+ 			status = PTR_ERR(ncm_opts->net);
++			ncm_opts->net = NULL;
+ 			mutex_unlock(&ncm_opts->lock);
+ 			ERROR(cdev, "%s: failed to setup ethernet\n", f->name);
+ 			return status;
+@@ -1433,6 +1434,7 @@ ncm_bind(struct usb_configuration *c, struct usb_function *f)
+ 		mutex_unlock(&ncm_opts->lock);
+ 		if (status) {
+ 			free_netdev(ncm_opts->net);
++			ncm_opts->net = NULL;
+ 			return status;
+ 		}
+ 		ncm_opts->bound = true;
+@@ -1570,6 +1572,8 @@ fail:
+ netdev_cleanup:
+ 	ncm_opts->bound = false;
+ 	gether_cleanup(netdev_priv(ncm_opts->net));
++	/* ne maradjon lógó mutató a configfs-attribútumoknak */
++	ncm_opts->net = NULL;
+ 
+ 	ERROR(cdev, "%s: can't bind, err %d\n", f->name, status);
+ 
+diff --git a/drivers/usb/gadget/function/u_ether.c b/drivers/usb/gadget/function/u_ether.c
+index 4994292..7502074 100644
+--- a/drivers/usb/gadget/function/u_ether.c
++++ b/drivers/usb/gadget/function/u_ether.c
+@@ -1317,6 +1317,8 @@ int gether_set_dev_addr(struct net_device *net, const char *dev_addr)
+ 	struct eth_dev *dev;
+ 	u8 new_addr[ETH_ALEN];
+ 
++	if (IS_ERR_OR_NULL(net))
++		return -ENODEV;
+ 	dev = netdev_priv(net);
+ 	if (get_ether_addr(dev_addr, new_addr))
+ 		return -EINVAL;
+@@ -1329,6 +1331,8 @@ int gether_get_dev_addr(struct net_device *net, char *dev_addr, int len)
+ {
+ 	struct eth_dev *dev;
+ 
++	if (IS_ERR_OR_NULL(net))
++		return -ENODEV;
+ 	dev = netdev_priv(net);
+ 	return get_ether_addr_str(dev->dev_mac, dev_addr, len);
+ }
+@@ -1339,6 +1343,8 @@ int gether_set_host_addr(struct net_device *net, const char *host_addr)
+ 	struct eth_dev *dev;
+ 	u8 new_addr[ETH_ALEN];
+ 
++	if (IS_ERR_OR_NULL(net))
++		return -ENODEV;
+ 	dev = netdev_priv(net);
+ 	if (get_ether_addr(host_addr, new_addr))
+ 		return -EINVAL;
+@@ -1351,6 +1357,8 @@ int gether_get_host_addr(struct net_device *net, char *host_addr, int len)
+ {
+ 	struct eth_dev *dev;
+ 
++	if (IS_ERR_OR_NULL(net))
++		return -ENODEV;
+ 	dev = netdev_priv(net);
+ 	return get_ether_addr_str(dev->host_mac, host_addr, len);
+ }
+@@ -1362,6 +1370,8 @@ int gether_get_host_addr_cdc(struct net_device *net, char *host_addr, int len)
+ 
+ 	if (len < 13)
+ 		return -EINVAL;
++	if (IS_ERR_OR_NULL(net))
++		return -ENODEV;
+ 
+ 	dev = netdev_priv(net);
+ 	snprintf(host_addr, len, "%pm", dev->host_mac);
+@@ -1374,6 +1384,10 @@ void gether_get_host_addr_u8(struct net_device *net, u8 host_mac[ETH_ALEN])
+ {
+ 	struct eth_dev *dev;
+ 
++	if (IS_ERR_OR_NULL(net)) {
++		eth_zero_addr(host_mac);
++		return;
++	}
+ 	dev = netdev_priv(net);
+ 	memcpy(host_mac, dev->host_mac, ETH_ALEN);
+ }
+@@ -1383,6 +1397,8 @@ void gether_set_qmult(struct net_device *net, unsigned qmult)
+ {
+ 	struct eth_dev *dev;
+ 
++	if (IS_ERR_OR_NULL(net))
++		return;
+ 	dev = netdev_priv(net);
+ 	dev->qmult = qmult;
+ }
+@@ -1392,6 +1408,8 @@ unsigned gether_get_qmult(struct net_device *net)
+ {
+ 	struct eth_dev *dev;
+ 
++	if (IS_ERR_OR_NULL(net))
++		return 0;
+ 	dev = netdev_priv(net);
+ 	return dev->qmult;
+ }
+@@ -1399,6 +1417,13 @@ EXPORT_SYMBOL_GPL(gether_get_qmult);
+ 
+ int gether_get_ifname(struct net_device *net, char *name, int len)
+ {
++	/*
++	 * A Samsung f_ncm az opts->net-et csak bind-kor hozza létre: ha a gadget
++	 * nincs (vagy nem sikerült) UDC-hez kötve, az ifname olvasása NULL-t
++	 * kapna, és netdev_name(NULL) Oops (PANIC_ON_OOPS mellett újraindulás).
++	 */
++	if (IS_ERR_OR_NULL(net))
++		return -ENODEV;
+ 	rtnl_lock();
+ 	strlcpy(name, netdev_name(net), len);
+ 	rtnl_unlock();
