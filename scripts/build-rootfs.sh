@@ -45,12 +45,16 @@ if [ ! -e "$ROOTFS/.stage-debootstrap" ]; then
 fi
 
 log "Fájlok másolása (közös + eszköz overlay)"
-cp -a "$ROOT_DIR/rootfs/overlay/." "$ROOTFS/"
-[ -d "$DEVICE_DIR/overlay" ] && cp -a "$DEVICE_DIR/overlay/." "$ROOTFS/"
+# --no-preserve=ownership: a git-munkafa a CI-runner felhasználójáé (uid 1001);
+# a cp -a ezt vinné át a meglévő /etc, /usr… könyvtárakra is (systemd-tmpfiles:
+# „unsafe path transition”, és biztonsági hiba: a 1001-es uid írhatná az /etc-t).
+CPO=(cp -a --no-preserve=ownership)
+"${CPO[@]}" "$ROOT_DIR/rootfs/overlay/." "$ROOTFS/"
+[ -d "$DEVICE_DIR/overlay" ] && "${CPO[@]}" "$DEVICE_DIR/overlay/." "$ROOTFS/"
 # A saját fájljaid (docs/pmos-javitasok.md, 1. pont) – ezek írnak felül mindent.
 if [ -d "$ROOT_DIR/sajat/rootfs" ]; then
 	log "Saját fájlok: sajat/rootfs"
-	cp -a "$ROOT_DIR/sajat/rootfs/." "$ROOTFS/"
+	"${CPO[@]}" "$ROOT_DIR/sajat/rootfs/." "$ROOTFS/"
 	rm -f "$ROOTFS/.gitkeep"
 fi
 mkdir -p "$ROOTFS/etc/mamuthka"
@@ -76,6 +80,17 @@ echo "$FIRMWARE_FILES" | while read -r name sum; do
 		curl -fsSL "$FIRMWARE_BASE_URL/$name" -o "$fwdir/$name"
 		echo "$sum  $fwdir/$name" | sha512sum -c --quiet - || die "Hibás firmware ellenőrzőösszeg: $name"
 	fi
+done
+# További gyári firmware (device.conf: VENDOR_FIRMWARE_FILES „forrás cél sha512”)
+echo "${VENDOR_FIRMWARE_FILES:-}" | while read -r src dst sum; do
+	[ -n "$src" ] || continue
+	f="$ROOTFS$dst"
+	mkdir -p "$(dirname "$f")"
+	if [ ! -f "$f" ] || ! echo "$sum  $f" | sha512sum -c --quiet - 2>/dev/null; then
+		curl -fsSL --retry 3 "$VENDOR_FIRMWARE_BASE_URL/$src" -o "$f"
+		echo "$sum  $f" | sha512sum -c --quiet - || die "Hibás firmware ellenőrzőösszeg: $src"
+	fi
+	chmod 644 "$f"
 done
 
 log "Rendszer beállítása chrootban (csomagok telepítése – sokáig tart)"
@@ -106,7 +121,7 @@ rm -f "$ROOTFS/tmp/setup.sh" "$ROOTFS/etc/resolv.conf.build"
 # A saját fájlok még egyszer, a csomagtelepítés UTÁN is: így a csomagok
 # /usr alatti (nem conffile) fájljait is felülírják (sajat/README.md).
 if [ -d "$ROOT_DIR/sajat/rootfs" ]; then
-	cp -a "$ROOT_DIR/sajat/rootfs/." "$ROOTFS/"
+	"${CPO[@]}" "$ROOT_DIR/sajat/rootfs/." "$ROOTFS/"
 	rm -f "$ROOTFS/.gitkeep"
 fi
 cleanup

@@ -1,0 +1,16 @@
+[Unit]
+Description=Mamuthka linux: gyári EFS partíció csak olvasva (Wi-Fi MAC-cím)
+Documentation=file:///usr/libexec/mamuthka/mount-efs
+DefaultDependencies=no
+After=systemd-udev-trigger.service local-fs-pre.target
+Before=local-fs.target NetworkManager.service
+Conflicts=shutdown.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/libexec/mamuthka/mount-efs
+ExecStop=-/bin/umount /efs
+
+[Install]
+WantedBy=local-fs.target

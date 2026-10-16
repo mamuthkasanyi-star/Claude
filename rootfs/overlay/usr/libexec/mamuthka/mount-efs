@@ -1,0 +1,19 @@
+#!/bin/sh
+# Mamuthka linux: a gyári „efs” partíció csatolása CSAK OLVASVA az /efs-re.
+# A Wi-Fi driver (scsc mgt.c) a gyári MAC-címet a /efs/wifi/.mac.info fájlból
+# veszi; nélküle minden indításkor ugyanazt az alapértelmezett MAC-et adja.
+# Az efs a telefon pótolhatatlan gyári adatait (IMEI, kalibráció) tartalmazza:
+#   ro      – semmi nem írhat rá,
+#   noload  – az ext4-napló visszajátszása sem (az is írás lenne).
+dev=/dev/disk/by-partlabel/efs
+i=0
+while [ ! -e "$dev" ] && [ $i -lt 50 ]; do sleep 0.1; i=$((i + 1)); done
+if [ ! -e "$dev" ]; then
+	echo "mount-efs: nincs efs partíció ($dev)"
+	exit 0
+fi
+mountpoint -q /efs && exit 0
+mkdir -p /efs
+mount -t ext4 -o ro,noload,nodev,nosuid,noexec "$dev" /efs ||
+	echo "mount-efs: az efs nem csatolható (a Wi-Fi alapértelmezett MAC-kel megy)"
+exit 0

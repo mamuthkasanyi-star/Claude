@@ -1,0 +1,58 @@
+#!/usr/bin/python3
+# Mamuthka linux: a lightdm (Xorg) indulása előtt a Plymouth leáll, és a
+# grafikus módban hagyott konzol (tty1 / az aktív VT) visszakerül KD_TEXT-be,
+# különben a VT-váltás a vt7-re elvész, az Xorg pedig a VT_WAITACTIVE-ban
+# örökre vár (lightdm.service.d/mamuthka-vt.conf, hibak.txt 56.).
+import fcntl
+import os
+import shutil
+import struct
+import subprocess
+import time
+
+KDSETMODE = 0x4B3A
+KDGETMODE = 0x4B3B
+KD_TEXT = 0
+
+
+def plymouthd_running():
+    for pid in os.listdir("/proc"):
+        if pid.isdigit():
+            try:
+                with open(f"/proc/{pid}/comm") as f:
+                    if f.read().strip() == "plymouthd":
+                        return True
+            except OSError:
+                pass
+    return False
+
+
+if shutil.which("plymouth") and plymouthd_running():
+    subprocess.call(["plymouth", "quit"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    for _ in range(50):          # legfeljebb 5 s
+        if not plymouthd_running():
+            break
+        time.sleep(0.1)
+
+ttys = {"tty1"}
+try:
+    with open("/sys/class/tty/tty0/active") as f:
+        ttys.add(f.read().strip())
+except OSError:
+    pass
+
+for tty in sorted(t for t in ttys if t.startswith("tty")):
+    try:
+        fd = os.open(f"/dev/{tty}", os.O_RDWR | os.O_NOCTTY)
+    except OSError as e:
+        print(f"vt-reset: /dev/{tty}: {e}")
+        continue
+    try:
+        mode = struct.unpack("i", fcntl.ioctl(fd, KDGETMODE, b"\0" * 4))[0]
+        if mode != KD_TEXT:
+            fcntl.ioctl(fd, KDSETMODE, KD_TEXT)
+            print(f"vt-reset: {tty} KD_GRAPHICS → KD_TEXT")
+    except OSError as e:
+        print(f"vt-reset: {tty}: {e}")
+    finally:
+        os.close(fd)

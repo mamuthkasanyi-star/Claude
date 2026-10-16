@@ -1,6 +1,6 @@
 # Mamuthka linux – állapot és átadás (handoff)
 
-> Utolsó frissítés: 2026-10-16. Ez a fájl az aktuális fejlesztési állapotot
+> Utolsó frissítés: 2026-10-17. Ez a fájl az aktuális fejlesztési állapotot
 > és a nyitott feladatokat rögzíti, hogy egy új session folytatni tudja.
 > Minden kódváltozás a `claude/remote-control-wo3lxh` ágon van és fel van
 > pusholva; a felhős konténer törlődik, a branch nem.
@@ -9,14 +9,86 @@
 
 Saját Linux (Ubuntu 24.04 + Cinnamon, magyar) a Samsung Galaxy A51-re
 (SM-A515F, Exynos 9611), postmarketOS A51-kernel alapon. Saját „Mamuthka
-Recovery", initramfs, USB-hálózatos hibakeresés. Állapot: **0.1 tesztverzió**,
-még nincs igazolt sikeres boot valódi telefonon.
+Recovery", initramfs, USB-hálózatos hibakeresés. Állapot: **0.1 tesztverzió**;
+a `97bc0e1` óta a rendszer valódi telefonon elindul (systemd, ssh), az asztal
+még nem jött fel (javítás: lásd lent, 2026-10-17).
 
 - Repó: https://github.com/mamuthkasanyi-star/Claude
 - Ág: `claude/remote-control-wo3lxh` (a teljes projekt itt; a `main` üres)
 - Release (flashelhető fájlok): https://github.com/mamuthkasanyi-star/Claude/releases/tag/a51-teszt
 
-## Aktuális probléma: recovery bootloop
+## Aktuális állapot (2026-10-17): a rendszer elindul – asztal, hang, recovery
+
+A `97bc0e1` boot+recovery+rootfs-szel a Mamuthka linux elindul (systemd
+running, `ssh mamuthka@172.16.42.1`, kijelző 1080×2400). A leletek és a
+javítások részletesen: hibak.txt 56–59. Röviden:
+
+- **Asztal:** az Xorg a vt7-en a `VT_WAITACTIVE`-ban állt, mert a Plymouth a
+  tty1-et KD_GRAPHICS módban hagyta (a kernel ilyenkor eldobja a VT-váltást).
+  Javítás: `lightdm.service.d/mamuthka-vt.conf` → `/usr/libexec/mamuthka/vt-reset`.
+- **Hang/CPU:** hiányzó ABOX-firmware → uevent-vihar (udevd ~100%), wireplumber-
+  terhelés. A gyári vendor-firmware-ek (hang-DSP, MFC, Wi-Fi reg DB, log-strings)
+  most a buildben töltődnek le a gyári dumpból, sha512-vel ellenőrizve
+  (`device.conf: VENDOR_FIRMWARE_FILES`); a repóba blob nem kerül. A v4l2/
+  libcamera figyelő ki (`/etc/wireplumber/main.lua.d/51-mamuthka.lua`; ugyanitt
+  a hangkártya kikapcsolásának módja, ha a DSP mégsem indulna).
+- **Kijelzőre írt kernelhibák:** a bootloader loglevel=4-et fűz a cmdline
+  végére → `kernel.printk = 3 4 1 3` (initramfs + sysctl.d).
+- **Kernel (0009 patch, audit=0):** a hamis load ~16 és a hung_task-jelzések
+  (tzdev-szálak, simpleinteractive) megszűnnek; kauditd-áradat ki.
+- **Wi-Fi MAC:** az `efs` partíció csak olvasva (`ro,noload`) az `/efs`-re
+  (`mamuthka-efs.service`), a driver onnan veszi a gyári MAC-et.
+- **Userspace:** a rootfs-ben az `/etc`, `/usr`… tulajdonosa 1001 volt (a CI
+  `cp -a`-ja) → javítva; modules-load/sysctl-hibák, PulseAudio-PipeWire ütközés,
+  blueman, jackdbus rendbe téve.
+- **Recovery:** a Wi-Fi a busybox-wget miatt „nem csatlakozott” (a GNU wget
+  most teljes útvonallal fut); a telnet a házirend-útválasztás miatt csak
+  USB-ről érhető el (Wi-Fi-ről nem); felület: kétsoros fejléc, tördelés/„…”,
+  görgethető Diagnosztika (húzás, hangerő, Teteje/Alja), akku-% a jobb felső
+  sarokban, kijelző ki/be a bekapcsológomb rövid nyomására és 120 s
+  tétlenség után; a Wi-Fi a használat után lekapcsol.
+
+### Recovery – kezelés (új)
+
+| Gomb / mozdulat | Hatás |
+|---|---|
+| Hangerő fel/le | léptetés a menüben; a naplóban lapozás |
+| Bekapcsoló hosszan (≥0,6 s) | OK / kiválasztás |
+| Bekapcsoló röviden | kijelző ki/be |
+| Érintés | választás; sötét kijelzőn csak ébreszt |
+| Húzás (napló) | görgetés |
+
+A tétlenségi idő a `RUI_IDLE` környezeti változóval állítható (másodperc,
+alapértelmezés 120, 0 = soha).
+
+## GPU-gyorsítás – felderítés és terv (2026-10-17)
+
+**Kernel-oldal (felderítve, működik):** Mali-G72 MP3 (r0p1), Arm kbase
+`r38p1-01bet0`, `/dev/mali0` létrejön. A kernelben megvan, ami az Android-
+userspace-hez kell: binder/hwbinder/vndbinder, ashmem, ION (Exynos). DRM/KMS
+**nincs**: a kijelzőt a DECON fbdev (`/dev/fb0`) hajtja, `/dev/dri` nincs. A
+G3D DT-figyelmeztetések ártalmatlanok. **A gyári A515FXXU7HWF1
+`libGLES_mali.so` verziója pontosan `r38p1-01bet0`** – egyezik a kernel
+kbase-ével, tehát a gyári blob kernel-módosítás nélkül beszélhet a GPU-val.
+
+**Lehetőségek:**
+
+| Út | Mit ad | Kockázat | Becslés |
+|---|---|---|---|
+| **A) libhybris + gyári Mali-blob** (Halium-szerű: Android 13 vendor-HAL-ok LXC-ben, gralloc/hwcomposer) | Hardveres EGL/GLES. Wayland-héjjal (Phosh/Lomiri) bizonyítottan járható (van Ubuntu Touch A51-port); Xorg/Cinnamon alatt csak `xf86-video-hwcomposer` + glamor-hybris úton, bizonytalan | közepes–magas (Cinnamon/muffin GLX-et vár, a blob csak GLES) | EGL-próba: 3–5 nap; Wayland-asztal: 1–2 hét; Cinnamon gyorsítva: 2–4 hét, nem garantált |
+| **B) Mesa panfrost kbase-backenddel** (Icecream95 kísérleti ága) | Nyílt Mesa GL a kbase fölött | magas: 2022 óta nem karbantartott, nincs megjelenítési út DRM nélkül | 4–8+ hét, kutatási munka |
+| **C) mainline panfrost DRM** | Tiszta upstream GPU-driver | nagyon magas: 4.14-re backport (drm_sched, io-pgtable), a kbase-t ki kell venni, a DECON-hoz nincs KMS-driver (csak render-node) | hónapok |
+
+**Javaslat:** az A) út, először egy kockázatmentes EGL-próbával (libhybris
+`test_egl_configs`/`test_glesv2` a gyári bloból, a rendszer és a kernel
+módosítása nélkül). Ha az megy, döntés: Wayland-héj (gyors siker) vagy
+Cinnamon-gyorsítás (hosszabb, bizonytalan). Nagy kernelmunka egyik úthoz sem
+kell az A) esetén.
+
+**Most beépítve (gyors és biztonságos):** Cinnamon animációk és ablakeffektek
+ki (`90_mamuthka.gschema.override`) – az llvmpipe-kompozitor kevesebb CPU-t visz.
+
+## Korábbi probléma: recovery bootloop (megoldva)
 
 Tünet: a recovery **kirajzolja a felületet, majd pár másodperc múlva újraindul**
 (loop). Mivel a `recovery/init` `while :;` ciklusban fut, ez NEM „kill init"
@@ -147,6 +219,15 @@ már látta. Részletek: hibak.txt 54–55.
   user-helper várakozás ki. Részletek: hibak.txt 44–50.
 
 ## Következő lépések (prioritás szerint)
+
+**2026-10-17:** a legújabb release-ből a BOOT (kernel: 0009, audit=0, printk az
+initramfs-ben), a RECOVERY (Wi-Fi-, telnet-, felület-javítás) és a USERDATA
+(sparse rootfs: asztal, firmware-ek, efs) is írandó; USERDATA csak a 120 s
+timeoutos heimdall 2.2.x-szel. Utána ellenőrizni: az asztal feljön-e
+(`journalctl -b -u lightdm`, `/var/log/Xorg.0.log`), `dmesg | grep -i calliope`,
+`aplay -l`, `cat /proc/loadavg`, `ip link show wlan0` (gyári MAC), a recovery-
+ben a Wi-Fi-telepítőút.
+
 
 0. **A legújabb boot.img a BOOT-ra és recovery.img a RECOVERY-re** (mindkettőben
    benne van az ifname-javítás; a USERDATA-rootfs usb-network szkriptje is

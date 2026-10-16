@@ -426,3 +426,128 @@ BOOTLOOP (2026-10-15 este, kernelforrás alapján)
     ("Startuploader complete" 1,40 s), decon real_size=2592000, dsim parancsmód.
     Ártalmatlan: abox "calliope_sram.bin" hiányzik (-2, csak hang), mip4_ts
     "flash_fw [ERROR]" (a firmware már naprakész), Coresight/fimc DT-figyelmeztetések.
+
+------------------------------------------------------------------------------
+A 97BC0E1 ELSŐ RENDSZERINDÍTÁSA (2026-10-16/17): a rendszer fut, ssh megy
+------------------------------------------------------------------------------
+56. [SÚLYOS] Az asztal nem jön fel, és a rendszer zajos/terhelt (journal, dmesg,
+    /proc/*/stack olvasva a telefonon).
+    a) ASZTAL: az Xorg (lightdm, vt7) a fbdev betöltése után örökre áll:
+       /proc/<Xorg>/stack: vt_ioctl → vt_waitactive. A tty1 KDGETMODE=KD_GRAPHICS,
+       VT_GETMODE=VT_AUTO: a Plymouth (tty1-en futott) kilépett, de grafikus
+       módban hagyta a konzolt; a kernel change_console() KD_GRAPHICS+VT_AUTO
+       konzolról minden VT-váltást eldob → a vt7 sosem lesz aktív. (lightdm.log:
+       „Plymouth is running on VT 1 … less than the configured minimum of 7 so not
+       replacing it” → Quitting Plymouth → az X azonnal indul: versenyhelyzet.)
+       → JAVÍTVA: lightdm.service.d/mamuthka-vt.conf + /usr/libexec/mamuthka/
+         vt-reset: indulás előtt plymouth quit (max 5 s várás), majd a tty1 és az
+         aktív VT KDSETMODE KD_TEXT.
+    b) HANG / CPU: a calliope_sram.bin hiányzott (-2) → ABOX: „Invalid calliope
+       state” ×1677, „ipc queue overflow” ×150, RDMA/WDMA -16; az
+       abox_failsafe ~5 ms-onként KOBJ_CHANGE ueventet küld → systemd-udevd ~100%
+       CPU, a wireplumber minden eseményre újraértékel.
+       → JAVÍTVA: a gyári vendor-firmware (A515FXXU7HWF1 dump) a buildben
+         letöltve, sha512-vel (device.conf VENDOR_FIRMWARE_FILES): calliope_sram/
+         dram/iva, spkamp, AP_AUDIO_SLSI, APBargeIn/APBiBF_AUDIO_SLSI, param_ti.
+         A repóba blob nem kerül. A hangkártya engedélyezve marad; kikapcsolás
+         (ha a DSP mégsem indulna): /etc/wireplumber/main.lua.d/51-mamuthka.lua.
+         ELLENŐRIZENDŐ eszközön: dmesg | grep -i calliope, aplay -l.
+    c) MFC / v4l2: mfc_fw.bin -2 ×36; a wireplumber v4l2-figyelője a ~80
+       /dev/video* eszközt nyitogatta (fimc_is szenzorhibák, „Érvénytelen
+       argumentum”, „Túl sok nyitott fájl”), a portal camera Lookup ×190.
+       → JAVÍTVA: mfc_fw.bin a firmware-listában; v4l2_monitor és
+         libcamera_monitor kikapcsolva (51-mamuthka.lua). Kamera nincs támogatva.
+    d) KONZOL: a bootloader a cmdline VÉGÉRE fűzi a „console=ram loglevel=4”-et,
+       ez felülírja a mi loglevel=3-unkat (/proc/sys/kernel/printk = 4 4 1 7),
+       ezért a KERN_ERR driverhibák a kijelzőre (tty0) íródtak. A VT-akadásnak
+       nem oka. CMDLINE_FORCE nem megoldás (lcdtype, sec_debug, reserve-fimc…
+       elveszne).
+       → JAVÍTVA: kernel.printk = 3 4 1 3 az initramfs elején és sysctl.d/
+         50-mamuthka.conf; a console=tty0 marad (Plymouth).
+    e) WI-FI FIRMWARE-KIEGÉSZÍTŐK: slsi_reg_database.bin (/vendor/etc/wifi) és
+       log-strings.bin (MXlog) hiányzott; a MAC-címet a driver a /efs/wifi/
+       .mac.info-ból olvasná, de az /efs nem volt csatolva → alapértelmezett MAC.
+       → JAVÍTVA: mindkét fájl a firmware-listában (a reg DB a recovery-be is);
+         mamuthka-efs.service: az efs partíció ro,noload (napló-visszajátszás
+         nélkül, semmi nem írhat rá) a NetworkManager előtt. Nincs a gyári
+         dumpban, ártalmatlan: mx140_common.hcf, mx140_localmib.hcf.
+    f) HAMIS TERHELÉS (load ~16) és hung_task: 8 tz_worker, ree_time,
+       scsi_srpmb_work, tz_iwsock TASK_UNINTERRUPTIBLE-ben vár munkára, 6
+       simpleinteractive kthread-et létrehozás után sosem ébresztettek fel.
+       → JAVÍTVA: 0009-tzdev-devfreq-idle-kthreads-must-not-sleep-in-D-state.patch
+         (TASK_IDLE a tzdev várakozásaiban; wake_up_process a kthread_bind után).
+    g) „kauditd hold queue overflow”: CONFIG_AUDIT=y, auditd nincs.
+       → JAVÍTVA: audit=0 a CONFIG_CMDLINE-ban.
+    h) USERSPACE:
+       - systemd-tmpfiles „unsafe path transition /etc (owned by 1001)”: a
+         build-rootfs.sh cp -a-ja a CI-runner uid-jét (1001) vitte át az /etc,
+         /usr… könyvtárakra (biztonsági hiba is) → JAVÍTVA: --no-preserve=
+         ownership mindhárom overlay-másolásnál.
+       - modules-load: i2c_dev, zram „not found” (beépített, nincs /lib/modules)
+         → JAVÍTVA: fwupd-i2c.conf és 20-zram-generator.conf maszkolva (a zram-
+         swap működik).
+       - sysctl: kernel.yama.ptrace_scope (nincs YAMA), unprivileged_userns_clone
+         (Debian-kiegészítés) → JAVÍTVA: „-” előtag / maszkolás.
+       - PulseAudio és pipewire-pulse egyszerre engedélyezve → JAVÍTVA:
+         pulseaudio globálisan maszkolva, autostart rejtve.
+       - blueman RfKill ImportError (nincs RFKILL/BT a kernelben) → JAVÍTVA:
+         blueman-mechanism maszkolva, autostart rejtve.
+       - pipewire jackdbus-detect hiba → JAVÍTVA: pipewire.conf.d/50-mamuthka.conf.
+    i) ÁRTALMATLAN (dokumentálva, nem javítjuk): alsactl restore 99 (nincs
+       mentett állapot), systemd compat cgroup Permission denied (cgroup v1),
+       xdg-permission-store failed (ssh-munkamenetenként újrainduló user@1000),
+       fimc_is szenzorhibák (a v4l2 megnyitása okozta), sec_bat „Fail to set psy
+       ((null))”, FM-rádió fmspeedy, drop_dump invalid dev, sec-thermistor iio,
+       dummy regulatorok, ufshcd_ioctl illegal cmd, mip4_ts „flash_fw [ERROR]”
+       (a chip firmware-e naprakész, a fájl nincs a dumpban), Coresight/fimc DT-
+       figyelmeztetések, G3D DT-figyelmeztetések.
+
+57. [SÚLYOS] Recovery: a Wi-Fi „nem csatlakozik”, és a telnet Wi-Fi-ről is
+    elérhető lett volna (a recoveryben telneten mérve).
+    a) A wpa_supplicant társít, a DHCP címet kap – a hibát a busybox ash okozta:
+       a „wget” nevet a BEÉPÍTETT applettel futtatja (a /usr/bin/wget GNU wget
+       helyett), az pedig nem ismeri a --ca-certificate kapcsolót → a
+       wifi_online() és minden letöltés hibával tért vissza, a felület ezt
+       „rossz jelszóként” jelezte. A lo interfész is DOWN volt.
+       → JAVÍTVA: WGET=/usr/bin/wget teljes útvonallal (internet-próba, fetch,
+         stream_rootfs); lo up; külön üzenet a hibás jelszóra (WRONG_KEY), a
+         DHCP-hibára és a „csatlakozva, de nincs internet” esetre; wpa-napló
+         (jelszó nélkül) a recovery.log-ba; a Wi-Fi a telepítés végén / hibánál
+         / Vissza-ra lekapcsol (wpa_supplicant, udhcpc le, wlan0 down).
+    b) A „telnetd -b 172.16.42.1:23” nem elég: a Linux weak host modellje
+       szerint a helyi címre bármely interfészen érkező csomagot elfogad, így a
+       Wi-Fi-hálózatból egy 172.16.42.1-re mutató útvonallal a jelszó nélküli
+       root-telnet elérhető (veth-párokkal igazolva).
+       → JAVÍTVA (recovery/init usb_only): házirend-útválasztás: usb0-ról és lo-
+         ról a local tábla, minden más interfészről a 172.16.42.0/24 „prohibit”;
+         veth-teszttel ellenőrizve (USB rendben, Wi-Fi → 172.16.42.1 tiltva).
+         Ha a szabályok nem állíthatók be, a Wi-Fi bekapcsolása előtt a telnet
+         leáll (wifi_guard).
+    c) FELÜLET (rui): a hosszú sorok kilógtak (fejléc „Samsung Galaxy A51 …
+       USB: …”, SSID-k, hibaüzenetek); a Diagnosztika nem volt görgethető; nem
+       volt akku-kijelzés; a kijelzőt nem lehetett kikapcsolni; a letöltés-
+       folyamatjelző fekete volt fekete alapon.
+       → JAVÍTVA: kétsoros fejléc (eszköznév / USB-IP), minden szöveg tördelve
+         vagy „…”-vel rövidítve, kétsoros gombfeliratok; „rui view”: görgethető
+         napló (húzás, hangerő = lapozás, Teteje/Alja gomb, a végén nyílik,
+         sortörés); akku-% töltésjellel („+”) a jobb felső sarokban, pár
+         másodpercenként frissül; bekapcsológomb röviden = kijelző ki/be,
+         hosszan (≥0,6 s) = OK; 120 s tétlenség után a kijelző kikapcsol
+         (RUI_IDLE), sötétben az érintés csak ébreszt.
+    d) FOGYASZTÁS (mérve, brightness=0): −75 mA, a CPU ~95% tétlen; a „load 17”
+       a tzdev D-állapotú szálai (56f, 0009 javítja). A Wi-Fi után futva maradt
+       wpa_supplicant volt a fő elkerülhető fogyasztó (most lekapcsol). Az AMOLED
+       fekete képpel alig fogyaszt; a laptop USB-portja nem fedezi a fogyasztást
+       (status Charging, mégis negatív áram).
+
+58. [KISEBB] Recovery/initramfs diag.sh: téves „Pánik az előző indításkor”. A
+    last_kmsg elején a bootloader (S-Boot) saját naplója és bináris szemét van,
+    benne pl. „Hard Reset”, vbmeta-hibák → illeszkedett a pánikmintára.
+    → JAVÍTVA: csak kernel-időbélyeges sor (`[ 12.345678] …`) számít.
+
+59. [INFO] GPU-gyorsítás – felderítés (2026-10-17), terv a docs/mamuthka-allapot.md
+    „GPU” részében. Kernel: Mali-G72 MP3 r0p1, kbase r38p1-01bet0, /dev/mali0
+    működik; binder/hwbinder/vndbinder, ashmem, ION megvan; DRM/KMS nincs (a
+    kijelző a DECON fbdev). A gyári A515FXXU7HWF1 libGLES_mali.so verziója
+    PONTOSAN r38p1-01bet0 → a libhybris-út kernel-módosítás nélkül járható.
+    Most beépítve: Cinnamon animációk/effektek ki (llvmpipe-terhelés kisebb).

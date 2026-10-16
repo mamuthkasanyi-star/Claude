@@ -120,11 +120,36 @@ update-alternatives --install /usr/share/plymouth/themes/default.plymouth defaul
 update-alternatives --set default.plymouth /usr/share/plymouth/themes/mamuthka/mamuthka.plymouth || true
 
 echo "== Szolgáltatások"
-systemctl enable lightdm NetworkManager ssh mamuthka-ssh-keygen mamuthka-resize-rootfs mamuthka-usb-network unattended-upgrades
+systemctl enable lightdm NetworkManager ssh mamuthka-ssh-keygen mamuthka-resize-rootfs mamuthka-usb-network \
+	mamuthka-efs unattended-upgrades
 systemctl set-default graphical.target
-# Ezek telefonon nem kellenek vagy hibát okoznak a régi kernellel
+# Ezek telefonon nem kellenek vagy hibát okoznak a régi kernellel.
+# blueman-mechanism: a kernelben nincs RFKILL/Bluetooth (ImportError: RfKill).
 systemctl mask systemd-firstboot.service systemd-networkd-wait-online.service NetworkManager-wait-online.service \
-	snapd.service snapd.socket ModemManager.service >/dev/null 2>&1 || true
+	snapd.service snapd.socket ModemManager.service blueman-mechanism.service >/dev/null 2>&1 || true
+# A hangot a PipeWire (pipewire-pulse) adja; a vele együtt települt PulseAudio
+# ugyanarra a socketre indulna (versengés, hibák a naplóban).
+systemctl --global mask pulseaudio.service pulseaudio.socket >/dev/null 2>&1 || true
+systemctl --global enable pipewire-pulse.socket >/dev/null 2>&1 || true
+# Automatikus indítás tiltása a munkamenetben (Cinnamon nem nézi a
+# X-GNOME-HiddenUnderSystemd kulcsot).
+for d in pulseaudio blueman; do
+	f=/etc/xdg/autostart/$d.desktop
+	[ -f "$f" ] && ! grep -q '^Hidden=true' "$f" && echo "Hidden=true" >> "$f"
+done
+# Beépített (nem modul) driverek: nincs /lib/modules, a modprobe hibát írna.
+#   i2c_dev (fwupd), zram (zram-generator; a zram-swap ettől működik)
+for f in fwupd-i2c.conf 20-zram-generator.conf; do
+	ln -sfn /dev/null "/etc/modules-load.d/$f"
+done
+# Nem létező sysctl-kulcsok a 4.14-es kernelen (nincs YAMA, és az
+# unprivileged_userns_clone Debian-kiegészítés): a „-” előtag mellett a
+# systemd-sysctl nem jelez hibát.
+[ -f /etc/sysctl.d/10-ptrace.conf ] && sed -i 's/^\(kernel\.yama\)/-\1/' /etc/sysctl.d/10-ptrace.conf
+for f in /usr/lib/sysctl.d/*bubblewrap*.conf; do
+	[ -f "$f" ] && ln -sfn /dev/null "/etc/sysctl.d/$(basename "$f")"
+done
+mkdir -p /efs
 
 # Az S-Boot a firmware_class.path=/vendor/firmware útvonalat adja át.
 mkdir -p /vendor

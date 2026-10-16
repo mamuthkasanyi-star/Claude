@@ -18,6 +18,11 @@ mount -t devtmpfs -o mode=0755,nosuid dev /dev
 mkdir -p /dev/pts /config /tmp /sysroot
 mount -t devpts devpts /dev/pts
 mount -t configfs configfs /config 2>/dev/null
+# A konzolra (kijelző) csak a kritikus kernelüzenetek menjenek: a bootloader a
+# cmdline végére loglevel=4-et fűz, így a KERN_ERR szintű driver-hibák (abox,
+# mfc, fimc…) a Plymouth/asztal fölé íródnának. (A rendszerben a sysctl
+# kernel.printk tartja ugyanezt; hibak.txt 56.)
+echo "3 4 1 3" > /proc/sys/kernel/printk 2>/dev/null
 
 LOG=/tmp/init.log
 exec >"$LOG" 2>&1

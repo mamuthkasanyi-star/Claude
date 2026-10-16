@@ -5,6 +5,9 @@ scaling-factor=uint32 @UI_SCALE@
 gtk-theme='@GTK_THEME@'
 icon-theme='@ICON_THEME@'
 cursor-size=24
+# Nincs GPU-gyorsítás (a Mali csak a gyári Android-blobbal menne, DRM nincs):
+# a kompozitor llvmpipe-pal, CPU-n rajzol, ezért animációk nélkül fut.
+enable-animations=false
 
 [org.gnome.desktop.interface]
 gtk-theme='@GTK_THEME@'
@@ -13,6 +16,12 @@ color-scheme='prefer-dark'
 
 [org.cinnamon.desktop.wm.preferences]
 theme='@GTK_THEME@'
+
+[org.cinnamon]
+desktop-effects=false
+desktop-effects-workspace=false
+desktop-effects-on-dialogs=false
+desktop-effects-on-menus=false
 
 [org.cinnamon.theme]
 name='cinnamon'

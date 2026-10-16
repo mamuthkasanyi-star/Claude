@@ -1,0 +1,81 @@
+From: Mamuthka linux
+Subject: [PATCH] tzdev, devfreq: idle kernel threads must not sleep in D state
+
+On SM-A515F the load average sits at ~16 on an idle system and hung_task
+keeps reporting tz_worker/ree_time/scsi_srpmb_work.  None of them is stuck:
+they wait for work in TASK_UNINTERRUPTIBLE, which counts towards the load
+average and is what hung_task looks for.
+
+- tzdev kthread pool (8 tz_worker threads), the iwsock read/write wait
+  (ree_time, scsi_srpmb_work and every iwsock user) and the tz_iwsock
+  notification thread now wait in TASK_IDLE (= TASK_UNINTERRUPTIBLE |
+  TASK_NOLOAD).  Wake-ups (TASK_NORMAL) are unchanged, signals are still
+  ignored; only the load and hung_task accounting change.
+- simpleinteractive devfreq governor: the change_freq kthread was created and
+  bound but never woken, so each of them (6 on this SoC) stayed in the
+  initial TASK_UNINTERRUPTIBLE sleep of kthread().  Wake it once so it
+  reaches its own TASK_INTERRUPTIBLE schedule() loop; the timer wakes it as
+  before.
+
+---
+--- a/drivers/misc/tzdev/tz_kthread_pool_smpboot.c
++++ b/drivers/misc/tzdev/tz_kthread_pool_smpboot.c
+@@ -124,7 +124,10 @@
+ 	DEFINE_WAIT_FUNC(wait, tz_kthread_pool_wake_function);
+ 
+ 	for (;;) {
+-		prepare_to_wait(&tz_cmd_waitqueue, &wait, TASK_UNINTERRUPTIBLE);
++		/* TASK_IDLE: an idle pool thread is not "uninterruptible work":
++		 * it must not count towards the load average nor trip hung_task.
++		 */
++		prepare_to_wait(&tz_cmd_waitqueue, &wait, TASK_IDLE);
+ 		ret = tz_kthread_pool_should_wake(cpu);
+ 		if (ret != KTHREAD_SHOULD_SLEEP)
+ 			break;
+--- a/drivers/misc/tzdev/tz_iwsock.c
++++ b/drivers/misc/tzdev/tz_iwsock.c
+@@ -49,7 +49,7 @@
+ 	DEFINE_WAIT_FUNC(wait, woken_wake_function);				\
+ 	add_wait_queue(&wq, &wait);						\
+ 	while (!(condition))							\
+-		wait_woken(&wait, TASK_UNINTERRUPTIBLE,				\
++		wait_woken(&wait, TASK_IDLE,					\
+ 			MAX_SCHEDULE_TIMEOUT);					\
+ 	remove_wait_queue(&wq, &wait);						\
+ })
+@@ -1252,12 +1252,21 @@
+ 	}
+ }
+ 
++/* wait_event() in TASK_IDLE (4.14 has no wait_event_idle()) */
++#define tz_iwsock_wait_event_idle(wq, condition)				\
++do {										\
++	might_sleep();								\
++	if (!(condition))							\
++		(void)___wait_event(wq, condition, TASK_IDLE, 0, 0,		\
++				    schedule());				\
++} while (0)
++
+ static int tz_iwsock_kthread(void *data)
+ {
+ 	(void)data;
+ 
+ 	while (!kthread_should_stop()) {
+-		wait_event(tz_iwsock_wq,
++		tz_iwsock_wait_event_idle(tz_iwsock_wq,
+ 				!circ_buf_is_empty(&swd_sock_events) ||
+ 				!circ_buf_is_empty(&internal_events_out) ||
+ 				kthread_should_stop());
+--- a/drivers/devfreq/governor_simpleinteractive.c
++++ b/drivers/devfreq/governor_simpleinteractive.c
+@@ -184,6 +184,10 @@
+ 	}
+ 
+ 	kthread_bind(data->change_freq_task, BOUND_CPU_NUM);
++	/* Let the thread reach its own TASK_INTERRUPTIBLE sleep; a never-woken
++	 * kthread stays in TASK_UNINTERRUPTIBLE forever (load average +1 each).
++	 */
++	wake_up_process(data->change_freq_task);
+ 
+ 	return 0;
+ 
