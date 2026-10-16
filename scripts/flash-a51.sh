@@ -7,6 +7,13 @@
 #
 # A mappában a GitHub Release fájljai legyenek (boot.img, recovery.img,
 # rootfs.img.zst.part*, SHA256SUMS).
+#
+# Teljes flasheléshez (USERDATA, ~4 GiB) a Debian/Ubuntu heimdall 2.0.x NEM
+# elég: a telefon írás közben >19 s-ra megáll, a 2.0.2 pedig ~240 MiB-nál
+# „Failed to send file part packet”-tel elszáll. Kell: Heimdall 2.2.x
+# (git.sr.ht/~grimler/Heimdall) kDefaultTimeoutSend/Receive = 120000-rel
+# fordítva, és sparse kép (img2simg, android-sdk-libsparse-utils):
+#   sudo HEIMDALL=/út/heimdall ./flash-a51.sh [mappa]
 set -euo pipefail
 
 MODE=full
@@ -22,7 +29,8 @@ case "$PART_RECOVERY" in @*) PART_RECOVERY=RECOVERY ;; esac
 case "$PART_ROOTFS" in @*) PART_ROOTFS=USERDATA ;; esac
 
 die() { echo "HIBA: $*" >&2; exit 1; }
-command -v heimdall >/dev/null || die "Telepítsd a Heimdallt: sudo apt install heimdall-flash"
+HEIMDALL="${HEIMDALL:-heimdall}"
+command -v "$HEIMDALL" >/dev/null || die "Telepítsd a Heimdallt: sudo apt install heimdall-flash (vagy HEIMDALL=/út/heimdall)"
 
 cd "$DIR"
 [ -f recovery.img ] || die "Nincs recovery.img a(z) $DIR mappában"
@@ -58,6 +66,33 @@ if [ $MODE = full ]; then
 		fi
 	fi
 	check boot.img recovery.img rootfs.img
+	# A USERDATA-t sparse képként írjuk: kisebb átvitel, és ezzel ment át
+	# kipróbáltan (2026-10-16). Az img2simg az android-sdk-libsparse-utils-ban van.
+	ROOTFS_FLASH=rootfs.img
+	if command -v img2simg >/dev/null; then
+		if [ ! -f rootfs.sparse.img ] || [ rootfs.img -nt rootfs.sparse.img ]; then
+			echo "Sparse kép készítése (img2simg)…"
+			img2simg rootfs.img rootfs.sparse.img.tmp && mv rootfs.sparse.img.tmp rootfs.sparse.img
+		fi
+		ROOTFS_FLASH=rootfs.sparse.img
+	else
+		echo "FIGYELEM: nincs img2simg (sudo apt install android-sdk-libsparse-utils) – nyers képet írok." >&2
+	fi
+	hv="$("$HEIMDALL" version 2>/dev/null || true)"
+	case "$hv" in
+		v1.*|v2.0.*|"")
+			cat >&2 <<-EOF
+
+			FIGYELEM: heimdall ${hv:-ismeretlen verzió}. A 2.0.x a USERDATA írásánál
+			időtúllépéssel elszáll (~240 MiB-nál „Failed to send file part packet”),
+			mert a telefon írás közben 20 mp-nél tovább nem válaszol. Használj
+			120 s-os timeouttal fordított Heimdall 2.2.x-et (HEIMDALL=/út/heimdall),
+			vagy a ./flash-a51.sh --recovery módot (a rendszert a recovery tölti le).
+			EOF
+			read -r -p "Mégis folytatod ezzel a heimdall-lal? (IGEN/nem) > " go
+			[ "$go" = "IGEN" ] || die "Megszakítva."
+			;;
+	esac
 else
 	check recovery.img
 fi
@@ -81,14 +116,18 @@ echo " └───────────────────────�
 read -r -p "Ha a telefon Letöltés módban van, írd be: IGEN  > " ok
 [ "$ok" = "IGEN" ] || die "Megszakítva."
 
-heimdall detect >/dev/null 2>&1 || die "Nem találom a telefont Letöltés módban (próbáld sudo-val, vagy másik USB-porttal)."
+"$HEIMDALL" detect >/dev/null 2>&1 || die "Nem találom a telefont Letöltés módban (próbáld sudo-val, vagy másik USB-porttal)."
 
 # Egy Letöltés-módbeli munkamenetben csak egy heimdall parancs futhat,
 # ezért minden partíciót egyszerre írunk.
 if [ $MODE = full ]; then
 	echo "Flashelés: boot, recovery, $PART_ROOTFS (több percig tart)…"
-	heimdall flash --"$PART_BOOT" boot.img --"$PART_RECOVERY" recovery.img --"$PART_ROOTFS" rootfs.img
+	"$HEIMDALL" flash --"$PART_BOOT" boot.img --"$PART_RECOVERY" recovery.img --"$PART_ROOTFS" "$ROOTFS_FLASH"
 	cat <<-EOF
+
+	(Ha a heimdall a „USERDATA upload successful” után a munkamenet zárásánál
+	megakad, az ártalmatlan: várj 1-2 percet, utána szakítsd meg Ctrl+C-vel,
+	és indítsd újra a telefont: Bekapcsoló + Hangerő LE ~7 mp.)
 
 	Kész! A telefon újraindul, és a Mamuthka linux elindul.
 	Az első indítás 1-2 perccel tovább tart.
@@ -96,7 +135,7 @@ if [ $MODE = full ]; then
 	EOF
 else
 	echo "Flashelés: recovery…"
-	heimdall flash --"$PART_RECOVERY" recovery.img --no-reboot
+	"$HEIMDALL" flash --"$PART_RECOVERY" recovery.img --no-reboot
 	cat <<-EOF
 
 	Kész! Most indítsd a telefont a Mamuthka Recovery-be:
@@ -111,6 +150,6 @@ fi
 cat <<EOF
 
 Ha a heimdall "partition not found" hibát ad, nézd meg a PIT-neveket
-(heimdall print-pit --no-reboot), és add meg őket, pl. kisbetűvel:
+($HEIMDALL print-pit --no-reboot), és add meg őket, pl. kisbetűvel:
   sudo PART_BOOT=boot PART_RECOVERY=recovery PART_ROOTFS=userdata $0 $( [ $MODE = recovery ] && echo --recovery ) $DIR
 EOF

@@ -1,0 +1,77 @@
+From: Mamuthka linux
+Subject: [PATCH] dpu20: decon_probe error path must not hang in kthread_stop()
+
+When the DT lacks the panel lcd_info (e.g. recovery.img without
+recovery_dtbo: S-Boot then applies no overlay), dsim reports 0x0 resolution,
+decon_acquire_windows() fails on a zero-size ION allocation and decon_probe()
+unwinds through decon_destroy_vsync_thread().  kthread_stop() only wakes the
+vsync thread, but its wait_event_interruptible() condition does not include
+kthread_should_stop(), so the thread goes straight back to sleep and PID 1
+(kernel_init) stays in D state forever.  Measured on SM-A515F: init stuck,
+then 4 s later "tzdev: iwsock error. result=11" panic -> bootloop.
+
+- vsync thread: wake up on kthread_should_stop() and leave the loop before
+  touching DECON registers (the pmOS framebuffer hack restarts DECON there).
+- decon_probe(): do not kfree() the devm_kzalloc()'d decon (double free at
+  devres release) and clear decon_drvdata[] so nobody sees a freed struct.
+
+The system then continues to boot without a display instead of hanging.
+
+---
+diff --git a/drivers/video/fbdev/exynos/dpu20/decon_core.c b/drivers/video/fbdev/exynos/dpu20/decon_core.c
+index e77c9e7..57a0d32 100644
+--- a/drivers/video/fbdev/exynos/dpu20/decon_core.c
++++ b/drivers/video/fbdev/exynos/dpu20/decon_core.c
+@@ -4219,9 +4219,16 @@ err_psr:
+ err_vsync:
+ 	iounmap(decon->res.ss_regs);
+ err_res:
+-	kfree(decon);
++	/*
++	 * Mamuthka: a decon devm_kzalloc()-kal foglalt, a kfree() itt dupla
++	 * felszabadítás lenne (a devres a probe hibája után maga szabadítja
++	 * fel). A globális mutatót is töröljük, hogy más driverek ne egy
++	 * felszabadított struktúrát lássanak.
++	 */
++	if (decon_drvdata[decon->id] == decon)
++		decon_drvdata[decon->id] = NULL;
+ err:
+-	decon_err("decon probe fail");
++	decon_err("decon probe fail (ret=%d): no display, boot continues\n", ret);
+ 	return ret;
+ }
+ 
+diff --git a/drivers/video/fbdev/exynos/dpu20/decon_dsi.c b/drivers/video/fbdev/exynos/dpu20/decon_dsi.c
+index 1189735..61d8672 100644
+--- a/drivers/video/fbdev/exynos/dpu20/decon_dsi.c
++++ b/drivers/video/fbdev/exynos/dpu20/decon_dsi.c
+@@ -332,14 +332,25 @@ static int decon_vsync_thread(void *data)
+ 		ktime_t timestamp = decon->vsync.timestamp;
+ #if defined(CONFIG_SUPPORT_KERNEL_4_9)
+ 		int ret = wait_event_interruptible(decon->vsync.wait,
+-			!ktime_equal(timestamp, decon->vsync.timestamp) &&
+-			decon->vsync.active);
++			(!ktime_equal(timestamp, decon->vsync.timestamp) &&
++			decon->vsync.active) || kthread_should_stop());
++		if (kthread_should_stop())
++			break;
+ #else
+ 		int ret = wait_event_interruptible(decon->vsync.wait,
+-			(timestamp != decon->vsync.timestamp) &&
+-			decon->vsync.active);
++			((timestamp != decon->vsync.timestamp) &&
++			decon->vsync.active) || kthread_should_stop());
+ 			
+ 		struct decon_mode_info psr;		
++		/*
++		 * Mamuthka: kthread_stop() csak felébreszti a szálat; a feltétel
++		 * nélküle hamis maradna, és a szál örökre visszaaludna, a
++		 * decon_destroy_vsync_thread() (decon_probe hibaága) pedig a
++		 * kthread_stop()-ban ragadna (PID 1 D állapotban). Leállításkor
++		 * a DECON-regiszterekhez sem nyúlunk (a hibaág utána unmap-el).
++		 */
++		if (kthread_should_stop())
++			break;
+ 		if (needs_pan) {
+ 			// TODO: This is dirty hack.
+ 			// Implement a better solution

@@ -1,6 +1,6 @@
 # Mamuthka linux – állapot és átadás (handoff)
 
-> Utolsó frissítés: 2026-10-15. Ez a fájl az aktuális fejlesztési állapotot
+> Utolsó frissítés: 2026-10-16. Ez a fájl az aktuális fejlesztési állapotot
 > és a nyitott feladatokat rögzíti, hogy egy új session folytatni tudja.
 > Minden kódváltozás a `claude/remote-control-wo3lxh` ágon van és fel van
 > pusholva; a felhős konténer törlődik, a branch nem.
@@ -31,7 +31,30 @@ Készülék Letöltés módból beolvasott állapota:
 - Carrier id: EUX  → eur_open variáns (az a51.cfg eur_open overlay-családja a helyes)
 - microSD: NINCS. UART: NINCS.
 
-## Diagnózis és eddigi lépések
+## GYÖKÉROK MEGTALÁLVA (2026-10-16, pstore-napló)
+
+A telefonról kiolvasott `last_kmsg` / `console-ramoops-0` alapján (a mi
+recovery.img-nk indult: kernel 0x1cd5000, ramdisk 0xb7d800):
+
+1. A `09a47f0` commit kivette a `recovery_dtbo`-t a recovery.img-ből. Az S-Boot
+   recovery-indításnál viszont NEM a `dtbo` partíciót, hanem a recovery.img
+   beágyazott recovery_dtbo-ját alkalmazza → overlay nélküli alap-DT
+   (`Machine model: samsung,armv8`).
+2. Nincs `lcd_info` → a dsim video módba esik, 0×0 felbontás, a framebuffer
+   0 bájt, `failed reserved mem device init: -19` → a `decon_probe` hibaágra fut.
+3. A hibaág `kthread_stop()`-ja a vsync-szálra örökre vár (a szál
+   `wait_event` feltételében nincs `kthread_should_stop()`) → PID 1 D állapot.
+4. A tzdev ACSD-indítása időtúllép → `Kernel panic - not syncing: tzdev:
+   iwsock error. result=11` (~5,4 mp) → újraindulás. Ez a „loop".
+
+Ellenpróba: a TWRP recovery.img (recovery_dtbo 476800 B) ugyanezen a telefonon
+`Samsung A51 EUR OPEN REV02` modellt, `/s6e3fa9` panelt, 1080 px-et,
+parancsmódot és 2592000 B framebuffert kap. A boot.img DT-táblájának
+`custom1` mezője (0x000000ff vs. TWRP 0xff000000) nem ok: a gyári boot.img
+és a pmOS is 0x000000ff, és a naplóban az UFDT a DTB- és a DTBO-bejegyzést is
+megtalálta („DT Overlay Complete!"). Részletek: hibak.txt 51–53.
+
+## Diagnózis és eddigi lépések (korábbi)
 
 1. Nem aláírás/zár gond (custom elfogadva).
 2. Nem korai DTB-pánik (a recovery UI kirajzolódik → kernel+panel jó).
@@ -78,6 +101,17 @@ Készülék Letöltés módból beolvasott állapota:
   - `/sbin/poweroff|reboot|halt` a ramdiskekben (a hővédelmi
     `orderly_poweroff` ezt hívja).
 
+- **Bootloop gyökérok-javítás (2026-10-16):**
+  - `build-recovery.sh`: `--recovery_dtbo dtbo.img` vissza (kötelező), és a
+    build leáll, ha a kész recovery.img headerében `recovery_dtbo_size == 0`.
+  - `build-bootimg.sh`: a build leáll, ha a boot.img-ben recovery_dtbo van
+    (normál indításnál a `dtbo` partíció érvényes, azt nem kell bántani).
+  - Kernel: `0007-dpu20-decon-probe-error-path-must-not-hang.patch` – a
+    vsync-szál kilép `kthread_stop()`-ra, az err_res ág nem `kfree()`-zi a
+    devm-memóriát. Panelhiba esetén kijelző nélkül, de tovább indul.
+  - `flash-a51.sh`: `HEIMDALL=` változó, sparse rootfs (img2simg),
+    figyelmeztetés 2.0.x heimdall esetén (USERDATA-időtúllépés).
+
 ## Build / release
 
 - Utolsó build: run 38808409340 (`09a47f0`), **conclusion: success**
@@ -93,7 +127,12 @@ Készülék Letöltés módból beolvasott állapota:
 
 ## Következő lépések (prioritás szerint)
 
-1. **Flash-teszt az új boot.img + recovery.img-gel.** Ha a recovery megint
+0. **Az új recovery.img a RECOVERY partícióra** (ez javítja a recovery-hurkot),
+   az új boot.img a BOOT-ra. A DTBO partíciót NEM kell írni (a gyári jó).
+   USERDATA csak sparse képpel és 120 s timeoutos heimdall 2.2.x-szel.
+   Ellenőrzés: a recovery-ben `dmesg | grep -i "machine model\|resolution"`
+   → `REV02`, `xres(1080)`.
+1. (korábbi) **Flash-teszt az új boot.img + recovery.img-gel.** Ha a recovery megint
    újraindul: a következő induláskor az indítóképernyő kiírja az okot
    (KPON = kernelpánik, WPON = watchdog, TPON = hő, MPON = gombos reset) és
    a pánik első sorait → **fotó**. (A pánik szövege magán a pánik-képernyőn
@@ -104,8 +143,8 @@ Készülék Letöltés módból beolvasott állapota:
    dwc3, vagy DECON). A `mamuthka: USB …` jelzők mutatják, melyik lépésnél.
 3. Ha a rendszer már indul: `journalctl -b` és `/var/log/mamuthka/`.
 4. Bluetooth-patch (`hci_sock_create()` ki van ürítve; `# CONFIG_BT is not set`).
-5. Base `dtb.img` board-illesztés ellenőrzése
-   (`exynos9611.cfg`: `custom0=0 custom1=0xff`).
+5. Base `dtb.img` board-illesztés: ellenőrizve, a `custom1=0xff` a gyárival
+   egyezik, a bootloader megtalálja (hibak.txt 51.).
 
 ## Egyéb várható hibák (előzetes)
 

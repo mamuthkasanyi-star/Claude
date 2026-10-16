@@ -57,5 +57,9 @@ mkbootimg \
 size=$(stat -c%s "$OUT_DIR/boot.img")
 [ "$size" -le "$BOOT_PARTITION_SIZE" ] ||
 	die "boot.img túl nagy: $size bájt > $BOOT_PARTITION_SIZE (a partíció csendben levágná)"
+# A boot.img-ben NEM lehet recovery_dtbo (normál úton az S-Boot rossz helyen
+# keresné a dtb-t); az overlayt itt a "dtbo" partícióból veszi.
+rdtbo=$(python3 -c 'import struct,sys; print(struct.unpack_from("<I", open(sys.argv[1],"rb").read(1636), 1632)[0])' "$OUT_DIR/boot.img")
+[ "$rdtbo" = 0 ] || die "A boot.img-ben recovery_dtbo van ($rdtbo bájt) – normál indításnál ez bootloopot okoz"
 
 log "Kész: $OUT_DIR/boot.img ($size bájt, max $BOOT_PARTITION_SIZE)"

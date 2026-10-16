@@ -101,15 +101,22 @@ build_ramdisk() {
 
 build_image() {
 	[ -f "$RAMDISK" ] || die "Nincs recovery ramdisk: $RAMDISK"
-	for f in Image dtb.img; do [ -f "$OUT_DIR/$f" ] || die "Hiányzik: $OUT_DIR/$f (build-kernel.sh)"; done
+	for f in Image dtb.img dtbo.img; do [ -f "$OUT_DIR/$f" ] || die "Hiányzik: $OUT_DIR/$f (build-kernel.sh)"; done
 	log "recovery.img"
-	# A recovery_dtbo szándékosan kimarad: a bootloader a recovery indulásakor
-	# az érintetlen gyári "dtbo" partíciót alkalmazza az alap dtb-re (mint a
-	# normál boot.img), így nincs beégetett, board-revízióhoz kötött overlay.
+	# A recovery_dtbo KÖTELEZŐ: recovery-indításkor az S-Boot NEM a "dtbo"
+	# partíciót, hanem a recovery.img-be ágyazott recovery_dtbo-t húzza rá az
+	# alap dtb-re. Nélküle egyetlen overlay sem kerül fel (Machine model:
+	# "samsung,armv8", nincs panel lcd_info → dsim 0x0 felbontás → decon_probe
+	# hiba → bootloop; pstore-mérés 2026-10-16, lásd hibak.txt 51.). A TWRP
+	# is így épül (recovery_dtbo 4 bejegyzéssel, ugyanaz a 00/01/03/07 osztás,
+	# mint az a51.cfg-ben, ami a 0–255 board-revíziót teljesen lefedi).
+	# A boot.img-be viszont TILOS tenni: a normál úton az S-Boot a dtb helyét
+	# a recovery_dtbo nélkül számolja (Ubuntu Touch A51-port, igazolt).
 	mkbootimg \
 		--header_version "$BOOTIMG_HEADER_VERSION" \
 		--kernel "$OUT_DIR/Image" \
 		--ramdisk "$RAMDISK" \
+		--recovery_dtbo "$OUT_DIR/dtbo.img" \
 		--dtb "$OUT_DIR/dtb.img" \
 		--base "$BOOTIMG_BASE" \
 		--pagesize "$BOOTIMG_PAGESIZE" \
@@ -127,6 +134,10 @@ build_image() {
 	size=$(stat -c%s "$OUT_DIR/recovery.img")
 	[ "$size" -le "$RECOVERY_PARTITION_SIZE" ] ||
 		die "recovery.img túl nagy: $size > $RECOVERY_PARTITION_SIZE"
+	# Ellenőrzés: a fejlécben (v1+, 1632. bájt) tényleg ott a recovery_dtbo.
+	rdtbo=$(python3 -c 'import struct,sys; print(struct.unpack_from("<I", open(sys.argv[1],"rb").read(1636), 1632)[0])' "$OUT_DIR/recovery.img")
+	[ "$rdtbo" -gt 0 ] || die "A recovery.img-ből hiányzik a recovery_dtbo (a panel overlay nélkül bootloop)"
+	log "recovery_dtbo: $rdtbo bájt"
 	log "Kész: $OUT_DIR/recovery.img ($size bájt, max $RECOVERY_PARTITION_SIZE)"
 }
 

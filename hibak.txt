@@ -361,3 +361,37 @@ BOOTLOOP (2026-10-15 este, kernelforrás alapján)
 
 50. [KISEBB] mamuthka-usb-network.service: interfész nélkül végtelen 5 mp-es
     újraindítási hurok a naplóban. → JAVÍTVA: StartLimit 5/120 mp.
+
+51. [SÚLYOS – A BOOTLOOP GYÖKÉROKA] A recovery.img-ből hiányzott a recovery_dtbo
+    (09a47f0). Az S-Boot recovery-indításnál NEM a dtbo partíciót, hanem a
+    recovery.img beágyazott recovery_dtbo-ját húzza rá a DTB-re; ha az nincs, a
+    kernel overlay nélküli alap-DT-t kap. Bizonyíték (last_kmsg + console-ramoops,
+    a mi recovery.img-nk: kernel 0x1cd5000, ramdisk 0xb7d800):
+      "Machine model: samsung,armv8" (helyesen: "Samsung A51 EUR OPEN REV02"),
+      "lcd_info property does not exist" → dsim video mód, "resolution: xres(0)",
+      "failed reserved mem device init: -19", fb real_size=0, ION zero size →
+      decon_probe hibaág → kthread_stop(vsync) örökre vár (PID 1 D állapot,
+      decon_probe+0x7ec) → tzdev "Timeout waiting for ACSD readiness" →
+      "Kernel panic - not syncing: tzdev: iwsock error. result=11" (5,4 mp) → reboot.
+    A TWRP recovery.img (recovery_dtbo 476800 B) ugyanezen a telefonon panel-node-ot,
+    1080 px-et, parancsmódot és 2592000 B fb-t kap. A boot.img DT-táblájának
+    custom1 mezője (0x000000ff) NEM ok: a gyári boot.img és a pmOS is ezt használja,
+    és a naplóban az UFDT a DTB- és DTBO-bejegyzést is megtalálta.
+    → JAVÍTVA: build-recovery.sh újra --recovery_dtbo dtbo.img (a dtbo.img kötelező),
+      és ellenőrzi, hogy a header recovery_dtbo_size > 0; build-bootimg.sh ellenőrzi,
+      hogy a boot.img-ben NINCS recovery_dtbo (ott a dtbo partíció érvényes).
+
+52. [SÚLYOS] decon_probe hibaágán a decon_destroy_vsync_thread() kthread_stop()-ja
+    örökre vár: a vsync-szál wait_event_interruptible feltételében nincs
+    kthread_should_stop(), így az ébresztés után visszaalszik. Ráadásul az err_res
+    ág kfree()-t hív devm_kzalloc-os memórián (dupla felszabadítás). Egy hiányzó
+    vagy hibás panel így az egész indítást (PID 1) megfogja.
+    → JAVÍTVA: 0007-dpu20-decon-probe-error-path-must-not-hang.patch (a feltételbe
+      kthread_should_stop(), utána kilépés; kfree helyett decon_drvdata törlése).
+      Kijelző nélkül a rendszer tovább indul (USB-hálózat, napló).
+
+53. [KÖZEPES] Flash: a gyári heimdall 2.0.x a nagy USERDATA-képnél időtúllépéssel
+    elhasal; csak a 120000 ms timeoutos heimdall 2.2.x és sparse kép (img2simg)
+    megy át. Az end-session a végén akadhat, ez ártalmatlan.
+    → JAVÍTVA: flash-a51.sh: HEIMDALL= változó, img2simg-vel sparse rootfs,
+      figyelmeztetés + megerősítés 2.0.x heimdall esetén.
