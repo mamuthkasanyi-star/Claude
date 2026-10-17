@@ -129,6 +129,27 @@ def supported():
     return False
 
 
+BG_DIR = "/usr/share/backgrounds/mamuthka/"
+BG_SCHEMA = "org.cinnamon.desktop.background"
+
+
+def set_wallpaper(rot):
+    """Fekvő helyzetben a fekvő háttérkép, állóban az álló – csak a Mamuthka
+    saját képeit cseréli, a user által választott más háttérképet nem."""
+    try:
+        uri = subprocess.run(["gsettings", "get", BG_SCHEMA, "picture-uri"],
+                             capture_output=True, text=True, timeout=5).stdout.strip().strip("'")
+    except (OSError, subprocess.SubprocessError):
+        return
+    if not uri.startswith("file://" + BG_DIR + "wallpaper"):
+        return
+    name = "wallpaper-landscape.png" if rot in ("left", "right") else "wallpaper.png"
+    want = "file://" + BG_DIR + name
+    if uri != want:
+        subprocess.run(["gsettings", "set", BG_SCHEMA, "picture-uri", want],
+                       capture_output=True, timeout=5)
+
+
 def apply(rot, c):
     os.makedirs(os.path.dirname(PENDING), exist_ok=True)
     write(PENDING, rot)
@@ -138,6 +159,7 @@ def apply(rot, c):
         subprocess.run(["xinput", "set-prop", "pointer:" + c["touch"],
                         "Coordinate Transformation Matrix"] + MATRIX[rot].split(),
                        capture_output=True, timeout=10)
+        set_wallpaper(rot)
     else:
         log("xrandr -o %s: %s" % (rot, r.stderr.strip()))
     try:
@@ -191,6 +213,8 @@ def main():
     cur = current_rotation()
     if cur != "normal":
         apply(cur, c)  # az érintés mátrixa is legyen összhangban
+    else:
+        set_wallpaper(cur)
     cand, since = None, 0.0
     while True:
         if os.path.exists(OFF):
