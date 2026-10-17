@@ -1,0 +1,41 @@
+[Unit]
+Description=Mamuthka linux: erőforrás-ügynök (A51 Figyelő, port 8790, csak olvas)
+Documentation=file:///usr/libexec/mamuthka/eroforras-ugynok.py
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 -I -S /usr/libexec/mamuthka/eroforras-ugynok.py
+Restart=on-failure
+RestartSec=5
+Environment=PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
+# Kis erőforrásigény, alacsony prioritás.
+Nice=10
+CPUSchedulingPolicy=batch
+IOSchedulingClass=idle
+CPUQuota=25%
+MemoryMax=64M
+TasksMax=48
+# Root kell: a cinnamon környezetéből a COGL_DRIVER, a maps-ból a Mali-jelenlét,
+# és a hangerő a bejelentkezett felhasználó nevében (wpctl). Minden más
+# írásvédett, a program semmit nem ír.
+ProtectSystem=strict
+ProtectHome=read-only
+PrivateTmp=yes
+NoNewPrivileges=yes
+ProtectKernelModules=yes
+ProtectKernelTunables=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+RestrictSUIDSGID=yes
+RestrictRealtime=yes
+LockPersonality=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX AF_NETLINK
+CapabilityBoundingSet=CAP_SETUID CAP_SETGID CAP_SYS_PTRACE CAP_DAC_READ_SEARCH CAP_NET_BIND_SERVICE
+UMask=0077
+# Ha a kernel támogatja (cgroup-BPF), csak privát címekről jöhet forgalom.
+IPAddressDeny=any
+IPAddressAllow=localhost 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16
+
+[Install]
+WantedBy=multi-user.target
