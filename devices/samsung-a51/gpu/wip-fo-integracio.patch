@@ -1,0 +1,145 @@
+diff --git a/.github/workflows/build-a51.yml b/.github/workflows/build-a51.yml
+index dbe8138..8b5f4e5 100644
+--- a/.github/workflows/build-a51.yml
++++ b/.github/workflows/build-a51.yml
+@@ -54,6 +54,12 @@ jobs:
+         run: |
+           sudo apt-get update
+           sudo apt-get install -y debootstrap e2fsprogs python3-pil zstd curl gcc binutils cpio
++      - name: GPU (libhybris + gyári Mali-meghajtó)
++        run: |
++          sudo apt-get install -y build-essential autoconf automake libtool pkg-config git unzip \
++            libwayland-dev libwayland-egl-backend-dev wayland-protocols libx11-dev libx11-xcb-dev \
++            libxcb1-dev libxcb-dri3-dev libxcb-present-dev libxext-dev libglvnd-dev
++          ./devices/samsung-a51/gpu/gpu-build.sh out/samsung-a51/extra-root
+       - name: Rendszer (Ubuntu 24.04 + Cinnamon) építése
+         run: sudo -E ./scripts/build-rootfs.sh
+       - name: Recovery ramdisk
+diff --git a/devices/samsung-a51/overlay/etc/mamuthka/grafika.conf b/devices/samsung-a51/overlay/etc/mamuthka/grafika.conf
+new file mode 100644
+index 0000000..62fd5bc
+--- /dev/null
++++ b/devices/samsung-a51/overlay/etc/mamuthka/grafika.conf
+@@ -0,0 +1,15 @@
++# Mamuthka linux (Galaxy A51) – grafika.
++# Felhasználónként felülírható: ~/.config/mamuthka/grafika.conf
++# A változás a következő bejelentkezéskor él (kijelentkezés / újraindítás).
++
++# Az asztal (Cinnamon/Muffin) rajzolása:
++#   GPU=1  a telefon GPU-ja (Mali-G72, gyári meghajtó a libhybris-en át, GLES2)
++#   GPU=0  szoftveres rajzolás (Mesa llvmpipe, a processzoron)
++# Ha a GPU-s Cinnamon összeomlik, a munkamenet végéig magától llvmpipe-ra vált.
++# Az asztalról indított programok mindkét esetben a Mesa-t használják.
++GPU=1
++
++# Az llvmpipe rajzolószálainak száma (1–8). Az Exynos 9611-ben 4 nagy (A73,
++# 2,3 GHz) és 4 kis (A53, 1,7 GHz) mag van; 4 szálnál kevesebb szál ébred
++# minden képkockánál (kisebb fogyasztás), de egy-egy nagy rajzolás lassabb.
++#LP_NUM_THREADS=4
+diff --git a/devices/samsung-a51/overlay/usr/lib/mamuthka/gpu/cinnamon-gpu.env b/devices/samsung-a51/overlay/usr/lib/mamuthka/gpu/cinnamon-gpu.env
+new file mode 100644
+index 0000000..bb3a5b6
+--- /dev/null
++++ b/devices/samsung-a51/overlay/usr/lib/mamuthka/gpu/cinnamon-gpu.env
+@@ -0,0 +1,19 @@
++# Mamuthka linux (Galaxy A51) – a GPU-s Cinnamon környezete: Muffin/Cogl GLES2
++# az EGL-en át; az EGL a libhybris (x11 platform), amely a gyári Mali-G72
++# meghajtót (libGLES_mali.so) tölti be. A /usr/local/bin/cinnamon olvassa be.
++# A gpu-env-takarito.so az első kirajzolás után törli ezeket a változókat, így
++# a Cinnamonból indított programok a szokásos Mesa-t használják.
++_mg=/usr/lib/mamuthka/gpu
++_ma=$_mg/android
++export MAMUTHKA_GPU_LDPATH=1 MAMUTHKA_GPU_LDPATH_EREDETI="${LD_LIBRARY_PATH:-}"
++export LD_LIBRARY_PATH=$_mg/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}
++export HYBRIS_LINKER_DIR=$_mg/lib/libhybris/linker
++export HYBRIS_ANDROID_SDK_VERSION=33
++export HYBRIS_LD_LIBRARY_PATH=$_ma/vendor/lib64:$_ma/vendor/lib64/egl:$_ma/vendor/lib64/hw:$_ma/apex/com.android.runtime/lib64/bionic:$_ma/apex/com.android.runtime/lib64:$_ma/apex/com.android.vndk.v33/lib64:$_ma/system/lib64
++export LIBEGL=libGLES_mali.so LIBGLESV2=libGLES_mali.so HYBRIS_LIBGLESV1=libGLES_mali.so
++export EGL_PLATFORM=x11 HYBRIS_EGLPLATFORM_DIR=$_mg/lib/libhybris
++export HYBRIS_LOGGING_LEVEL=warn
++export __EGL_VENDOR_LIBRARY_FILENAMES=$_mg/10_libhybris.json
++export COGL_DRIVER=gles2
++export LD_PRELOAD=$_mg/lib/gpu-env-takarito.so${LD_PRELOAD:+:$LD_PRELOAD}
++unset _mg _ma
+diff --git a/devices/samsung-a51/overlay/usr/local/bin/cinnamon b/devices/samsung-a51/overlay/usr/local/bin/cinnamon
+new file mode 100755
+index 0000000..25e9701
+--- /dev/null
++++ b/devices/samsung-a51/overlay/usr/local/bin/cinnamon
+@@ -0,0 +1,44 @@
++#!/bin/sh
++# Mamuthka linux – Cinnamon indító: GPU-val (Mali-G72, libhybris, GLES2) vagy
++# szoftveres rajzolással (Mesa llvmpipe).
++#
++# Kapcsoló: /etc/mamuthka/grafika.conf, felhasználónként
++# ~/.config/mamuthka/grafika.conf:  GPU=1 (Mali) | GPU=0 (llvmpipe)
++# Önvédelem: ha a GPU-s Cinnamon összeomlik (a cinnamon-launcher ilyenkor
++# MAMUTHKA_GPU_TILTVA=1-gyel indítja újra), vagy 90 másodpercen belül újra
++# indul, a munkamenet hátralevő részében llvmpipe-pal fut.
++# A /usr/local/bin a PATH-ban a /usr/bin előtt van: a cinnamon-launcher és a
++# global.reexec_self() is ezt indítja.
++# A GPU-s környezeti változókat a gpu-env-takarito.so az első kirajzolás után
++# törli, így a Cinnamonból indított programok a megszokott Mesa-t használják.
++VALODI=/usr/bin/cinnamon
++gpu=1
++for f in /etc/mamuthka/grafika.conf "$HOME/.config/mamuthka/grafika.conf"; do
++	[ -r "$f" ] || continue
++	v=$(sed -n 's/^[[:space:]]*GPU=\([01]\)[[:space:]]*$/\1/p' "$f" | tail -n 1)
++	[ -n "$v" ] && gpu=$v
++done
++[ "${MAMUTHKA_GPU_TILTVA:-0}" = 1 ] && gpu=0
++
++envf=/usr/lib/mamuthka/gpu/cinnamon-gpu.env
++[ -r "$envf" ] && [ -c /dev/mali0 ] || gpu=0
++
++jel="${XDG_RUNTIME_DIR:-/tmp}/mamuthka-gpu.inditas"
++if [ "$gpu" = 1 ] && [ -f "$jel" ]; then
++	most=$(date +%s); volt=$(cat "$jel" 2>/dev/null || echo 0)
++	if [ $((most - volt)) -lt 90 ]; then
++		echo "mamuthka-gpu: a GPU-s Cinnamon nemrég újraindult – llvmpipe a munkamenet végéig" >&2
++		gpu=0
++		export MAMUTHKA_GPU_TILTVA=1
++	fi
++fi
++
++if [ "$gpu" = 1 ]; then
++	date +%s > "$jel"
++	echo "mamuthka-gpu: Cinnamon GPU-val (libhybris, $envf)" >&2
++	# shellcheck disable=SC1090
++	. "$envf"
++else
++	echo "mamuthka-gpu: Cinnamon llvmpipe-pal" >&2
++fi
++exec "$VALODI" "$@"
+diff --git a/rootfs/overlay/usr/share/mamuthka/cinnamon-launcher-patch.py b/rootfs/overlay/usr/share/mamuthka/cinnamon-launcher-patch.py
+index 9e3ed23..e621cbb 100644
+--- a/rootfs/overlay/usr/share/mamuthka/cinnamon-launcher-patch.py
++++ b/rootfs/overlay/usr/share/mamuthka/cinnamon-launcher-patch.py
+@@ -65,6 +65,10 @@ def mamuthka_auto_restart(exit_status):
+         pass
+     print("cinnamon-launcher: a cinnamon összeomlott (jel: %d), újraindítás "
+           "(%d/%d)" % (sig, len(stamps), MAMUTHKA_RESTART_MAX), flush=True)
++    # Galaxy A51: ha a GPU-s (libhybris) Cinnamon omlott össze, az újraindítás
++    # a munkamenet végéig szoftveres rajzolással (llvmpipe) megy (/usr/local/bin/cinnamon).
++    if os.environ.get("MAMUTHKA_GPU_TILTVA") != "1":
++        os.environ["MAMUTHKA_GPU_TILTVA"] = "1"
+     time.sleep(1)
+     return True
+ ''')
+diff --git a/scripts/build-rootfs.sh b/scripts/build-rootfs.sh
+index 60bca6a..b4bb8a5 100755
+--- a/scripts/build-rootfs.sh
++++ b/scripts/build-rootfs.sh
+@@ -51,6 +51,12 @@ log "Fájlok másolása (közös + eszköz overlay)"
+ CPO=(cp -a --no-preserve=ownership)
+ "${CPO[@]}" "$ROOT_DIR/rootfs/overlay/." "$ROOTFS/"
+ [ -d "$DEVICE_DIR/overlay" ] && "${CPO[@]}" "$DEVICE_DIR/overlay/." "$ROOTFS/"
++# Előre lefordított/letöltött eszközfájlok (pl. Galaxy A51 GPU: a CI-ban a
++# devices/samsung-a51/gpu/gpu-build.sh készíti az $OUT_DIR/extra-root alá).
++if [ -d "$OUT_DIR/extra-root" ]; then
++	log "Eszközfájlok: $OUT_DIR/extra-root"
++	"${CPO[@]}" "$OUT_DIR/extra-root/." "$ROOTFS/"
++fi
+ # A saját fájljaid (docs/pmos-javitasok.md, 1. pont) – ezek írnak felül mindent.
+ if [ -d "$ROOT_DIR/sajat/rootfs" ]; then
+ 	log "Saját fájlok: sajat/rootfs"
