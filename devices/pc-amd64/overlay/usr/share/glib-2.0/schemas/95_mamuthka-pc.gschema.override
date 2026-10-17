@@ -1,0 +1,23 @@
+# Mamuthka linux – PC: a 90_mamuthka (A51-es alapértékek) felülírása.
+
+[org.cinnamon.desktop.interface]
+# 0 = automatikus (HiDPI kijelzőn 2, egyébként 1); a telefonon fixen 2.
+scaling-factor=uint32 0
+
+[org.cinnamon.desktop.background]
+picture-uri='file:///usr/share/backgrounds/mamuthka/wallpaper-landscape.png'
+picture-options='zoom'
+
+# Monitor: 5 perc tétlenség után kikapcsol; képernyőzár nincs (a 90_-ben).
+[org.cinnamon.desktop.session]
+idle-delay=uint32 300
+
+[org.cinnamon.settings-daemon.plugins.power]
+sleep-display-ac=600
+sleep-display-battery=300
+# Bekapcsológomb: rákérdez (leállítás / újraindítás / alvás).
+button-power='interactive'
+lock-on-suspend=false
+
+[org.onboard.auto-show]
+enabled=false

@@ -1,0 +1,56 @@
+name: Mamuthka linux – PC live ISO (amd64)
+
+# Külön workflow, az A51-es build-től független: csak a PC-s fájlok
+# változásakor (vagy kézzel) fut, és nem szakítja meg az A51-es buildet.
+on:
+  workflow_dispatch:
+  push:
+    branches: [claude/remote-control-wo3lxh, claude/pc-live]
+    paths:
+      - 'devices/pc-amd64/**'
+      - 'scripts/build-pc-live.sh'
+      - '.github/workflows/build-pc-live.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-pc-live-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  DEVICE: pc-amd64
+
+jobs:
+  iso:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 240
+    steps:
+      - uses: actions/checkout@v4
+      - name: Hely felszabadítása
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache \
+            /usr/local/share/boost /usr/share/swift /usr/local/.ghcup || true
+          sudo docker image prune -af >/dev/null 2>&1 || true
+          df -h / /mnt
+      - name: Függőségek
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y debootstrap e2fsprogs python3-pil zstd curl squashfs-tools xorriso \
+            mtools dosfstools grub-common grub-pc-bin grub-efi-amd64-bin uuid-runtime initramfs-tools-core
+      - name: Live ISO építése (Ubuntu 24.04 + Cinnamon + casper)
+        run: sudo -E ./scripts/build-pc-live.sh
+      - name: Eredmény
+        run: |
+          ls -la out/pc-amd64
+          cat out/pc-amd64/*.sha256 out/pc-amd64/*.iso.txt
+          df -h /
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mamuthka-linux-pc-amd64
+          compression-level: 0
+          retention-days: 30
+          path: |
+            out/pc-amd64/*.iso
+            out/pc-amd64/*.iso.sha256
+            out/pc-amd64/*.iso.txt

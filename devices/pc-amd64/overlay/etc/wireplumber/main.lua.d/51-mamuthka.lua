@@ -1,0 +1,3 @@
+-- Mamuthka linux – PC: nincs eszközfüggő kivétel (a kamera és minden
+-- hangkártya engedélyezve). A közös, A51-es változatot írja felül, amely
+-- a telefon v4l2-figyelőjét és az ABOX-hibakereső kártyát kapcsolja ki.
