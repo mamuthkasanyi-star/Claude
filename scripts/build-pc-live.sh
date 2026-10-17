@@ -85,30 +85,36 @@ search --no-floppy --set=root --file /.disk/mamuthka-$CASPER_UUID
 set default=0
 set timeout=10
 set timeout_style=menu
+# Ékezetek: Secure Boot alatt az aláírt GRUB (lockdown) nem tölt be
+# betűkészletet, a firmware szöveges konzolja pedig nem ismeri az ő/ű/–
+# jelet – ilyenkor ö/ü/- jelenik meg helyettük.
+set o="ő"; set u="ű"; set d="–"
 if loadfont /boot/grub/fonts/unicode.pf2; then
 	set gfxmode=auto
 	insmod all_video
 	insmod gfxterm
 	terminal_output gfxterm
+else
+	set o="ö"; set u="ü"; set d="-"
 fi
 set menu_color_normal=white/black
 set menu_color_highlight=black/light-gray
 
-menuentry "Mamuthka linux – élő rendszer" {
+menuentry "Mamuthka linux \$d él\${o} rendszer" {
 	set gfxpayload=keep
 	linux /$LMP/vmlinuz $KP quiet splash
 	initrd /$LMP/initrd
 }
-menuentry "Mamuthka linux – élő rendszer, változások megőrzése (writable/casper-rw)" {
+menuentry "Mamuthka linux \$d él\${o} rendszer, változások meg\${o}rzése (writable/casper-rw)" {
 	set gfxpayload=keep
 	linux /$LMP/vmlinuz $KP persistent quiet splash
 	initrd /$LMP/initrd
 }
-menuentry "Mamuthka linux – biztonságos grafika (nomodeset)" {
+menuentry "Mamuthka linux \$d biztonságos grafika (nomodeset)" {
 	linux /$LMP/vmlinuz $KP nopersistent nomodeset
 	initrd /$LMP/initrd
 }
-menuentry "Mamuthka linux – szöveges indítás (hibakereséshez)" {
+menuentry "Mamuthka linux \$d szöveges indítás (hibakereséshez)" {
 	linux /$LMP/vmlinuz $KP nopersistent systemd.unit=multi-user.target
 	initrd /$LMP/initrd
 }
