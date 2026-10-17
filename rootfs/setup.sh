@@ -122,25 +122,40 @@ echo "$USERNAME:$USER_PASSWORD" | chpasswd
 install -d -o "$USERNAME" -g "$USERNAME" "/home/$USERNAME/.config" "/home/$USERNAME/.config/mamuthka"
 install -o "$USERNAME" -g "$USERNAME" /dev/null "/home/$USERNAME/.config/mamuthka/change-password"
 passwd -l root >/dev/null
+# Mamutos felhasználókép a belépőképernyőn (slick-greeter) és a Cinnamonban
+install -D -m 644 /usr/share/mamuthka/bongeszo/ikonok/mamuthka-256.png \
+	"/var/lib/AccountsService/icons/$USERNAME"
+install -d -m 700 /var/lib/AccountsService/users
+cat >"/var/lib/AccountsService/users/$USERNAME" <<EOF
+[User]
+Session=cinnamon
+Icon=/var/lib/AccountsService/icons/$USERNAME
+SystemAccount=false
+EOF
+install -m 644 -o "$USERNAME" -g "$USERNAME" /usr/share/mamuthka/bongeszo/ikonok/mamuthka-256.png \
+	"/home/$USERNAME/.face"
 
 echo "== Cinnamon alapbeállítások"
 sed -i -e "s/@UI_SCALE@/$UI_SCALE/" -e "s/@GTK_THEME@/$GTK_THEME/g" -e "s/@ICON_THEME@/$ICON_THEME/" \
 	/usr/share/glib-2.0/schemas/90_mamuthka.gschema.override
 glib-compile-schemas /usr/share/glib-2.0/schemas
 
-# cinnamon-screensaver 6.0: a Stage.update_geometry() a (már fizikai pixelben
-# kapott) képernyőméretet még egyszer felszorozza a skálával → 2×-es
-# (2160×4800) zárképernyő-ablak, amit a cinnamon llvmpipe-pal folyamatosan
-# rajzol: ~450% CPU, kikapcsolt kijelzőnél is (hibak.txt 61.). Elterelve
-# javítjuk; egy csomagfrissítés az eredetit a .distrib néven telepíti.
+# cinnamon-screensaver 6.0 stage.py (elterelve javítjuk; egy csomagfrissítés
+# az eredetit .distrib néven telepíti, a javítás ilyenkor újra futtatandó):
+#  - update_geometry() a képernyőméretet még egyszer felszorozza a skálával →
+#    2160×4800-as zárképernyő-ablak, llvmpipe-pal ~450% CPU, kikapcsolt
+#    kijelzőnél is (hibak.txt 61.);
+#  - az óra álló kijelzőn középen, a háttérkép mamutfeje fölött (hibak.txt 64.).
 SS=/usr/share/cinnamon-screensaver/stage.py
-if [ -f "$SS" ] && [ "$(grep -c 'self\.rect\.\(width\|height\) \*= scale' "$SS")" = 2 ]; then
+if [ -f "$SS" ]; then
 	dpkg-divert --local --rename --divert "$SS.distrib" --add "$SS" >/dev/null
-	sed -e '/self\.rect\.\(width\|height\) \*= scale/d' "$SS.distrib" > "$SS"
-	chmod 644 "$SS"
-	python3 -m py_compile "$SS" && rm -rf /usr/share/cinnamon-screensaver/__pycache__/stage.*
-else
-	echo "!! cinnamon-screensaver stage.py: a javítandó sorok nem találhatók (megváltozott a csomag?)"
+	if python3 /usr/share/mamuthka/cs-stage-patch.py "$SS.distrib" "$SS"; then
+		chmod 644 "$SS"
+		rm -rf /usr/share/cinnamon-screensaver/__pycache__/stage.*
+	else
+		echo "!! cinnamon-screensaver stage.py nem javítható (megváltozott a csomag?) – az eredeti marad"
+		dpkg-divert --local --rename --remove "$SS" >/dev/null
+	fi
 fi
 sed -i "s/@USERNAME@/$USERNAME/" /etc/lightdm/lightdm.conf.d/50-mamuthka.conf
 

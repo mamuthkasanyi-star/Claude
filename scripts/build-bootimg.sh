@@ -5,7 +5,7 @@
 # Kimenet: out/<eszköz>/boot.img
 . "$(dirname "$0")/lib.sh"
 
-need git python3 cpio gzip file
+need git python3 cpio gzip file curl sha512sum awk
 
 BUSYBOX="${BUSYBOX:-$OUT_DIR/busybox}"
 [ -f "$OUT_DIR/Image" ] || die "Nincs kernel: futtasd előbb a build-kernel.sh-t"
@@ -23,6 +23,21 @@ install -m755 "$ROOT_DIR/initramfs/init" "$IRD/init"
 install -Dm644 "$ROOT_DIR/initramfs/usbnet.sh" "$IRD/lib/mamuthka/usbnet.sh"
 install -Dm644 "$ROOT_DIR/initramfs/watchdog.sh" "$IRD/lib/mamuthka/watchdog.sh"
 install -Dm644 "$ROOT_DIR/initramfs/diag.sh" "$IRD/lib/mamuthka/diag.sh"
+# Korán (a /init előtt) kért gyári firmware-ek (device.conf: INITRAMFS_FIRMWARE),
+# a VENDOR_FIRMWARE_FILES forrásából, sha512-vel ellenőrizve.
+FWCACHE="$WORK_DIR/initramfs-fw"
+mkdir -p "$FWCACHE"
+for name in ${INITRAMFS_FIRMWARE:-}; do
+	line=$(echo "${VENDOR_FIRMWARE_FILES:-}" | awk -v d="/lib/firmware/$name" '$2 == d { print; exit }')
+	[ -n "$line" ] || die "INITRAMFS_FIRMWARE: $name nincs a VENDOR_FIRMWARE_FILES-ban"
+	set -- $line
+	f="$FWCACHE/$name"
+	if [ ! -f "$f" ] || ! echo "$3  $f" | sha512sum -c --quiet - 2>/dev/null; then
+		curl -fsSL --retry 3 "$VENDOR_FIRMWARE_BASE_URL/$1" -o "$f"
+		echo "$3  $f" | sha512sum -c --quiet - || die "Hibás firmware ellenőrzőösszeg: $1"
+	fi
+	install -Dm644 "$f" "$IRD/lib/firmware/$name"
+done
 cat > "$IRD/etc/mamuthka-initramfs.conf" <<EOF
 ROOTFS_LABEL="$ROOTFS_LABEL"
 ROOTFS_PARTNAME="$HEIMDALL_PARTITION_ROOTFS"

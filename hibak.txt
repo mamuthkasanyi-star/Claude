@@ -604,3 +604,21 @@ A 97BC0E1 ELSŐ RENDSZERINDÍTÁSA (2026-10-16/17): a rendszer fut, ssh megy
     NYITVA (ebben a körben nem készült el): hang (calliope firmware az
     initramfs-be), automatikus forgatás (SSP sensorhub poweron +
     SensorProxy-daemon), GPU EGL-próba (libhybris).
+
+64. [KISEBB] Alvó állapotban (cinnamon-screensaver) az óra a bal szélen / lebegve
+    jelent meg, a háttérkép mamutfejét takarva.
+    → JAVÍTVA: /usr/share/mamuthka/cs-stage-patch.py (a setup.sh futtatja a
+      dpkg-divert után): álló kijelzőn, floating-widgets=false mellett az óra
+      vízszintesen középen, az alja a képernyő 25,5%-ánál (a mamutfej teteje a
+      háttérképen 27,5%), ébren és alvó állapotban is. Ugyanez a szkript
+      végzi a 61. pont 2×-es ablakméret-javítását.
+    Élő próba a telefonon nem volt: a rendszerfájl cseréjét (root-írás SSH-n)
+    a jogosultsági rendszer elutasította – flash után ellenőrizendő.
+
+65. [SÚLYOS] Nincs hang: „Direct firmware load for calliope_sram.bin failed
+    with error -2” 2,09 s-nál, utána „Invalid calliope state: 0” végtelenül.
+    Ok: az ABOX a kernel indulásakor, a /init előtt kéri a firmware-t, és nem
+    próbálja újra; ekkor csak az initramfs látszik.
+    → JAVÍTVA: device.conf INITRAMFS_FIRMWARE (calliope_sram/dram/iva), a
+      build-bootimg.sh a VENDOR_FIRMWARE_FILES forrásából letölti, sha512-vel
+      ellenőrzi és az initramfs /lib/firmware-ébe teszi (~2,2 MB).
