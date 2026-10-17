@@ -1,4 +1,4 @@
-From 3cc2b56608286df2fc4c16e4207d1f5ae046bfb1 Mon Sep 17 00:00:00 2001
+From 9542e13bc7f957ee9665bfd1c52f2df319c9cda7 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Sat, 17 Oct 2026 15:35:58 +0200
 Subject: [PATCH] =?UTF-8?q?x11:=20XImage=20=C3=BAjral=C3=A9trehoz=C3=A1sa?=
@@ -12,7 +12,7 @@ Content-Transfer-Encoding: 8bit
  1 file changed, 25 insertions(+), 2 deletions(-)
 
 diff --git a/hybris/egl/platforms/x11/x11_window.cpp b/hybris/egl/platforms/x11/x11_window.cpp
-index 687ccb4..199a1ef 100644
+index 687ccb4..3479cf8 100644
 --- a/hybris/egl/platforms/x11/x11_window.cpp
 +++ b/hybris/egl/platforms/x11/x11_window.cpp
 @@ -611,6 +611,25 @@ void X11NativeWindow::copyToX11(X11NativeWindowBuffer *wnb) {
@@ -34,7 +34,7 @@ index 687ccb4..199a1ef 100644
 +            shmdt(m_shminfo.shmaddr);
 +        }
 +        m_image->data = NULL;
-+        XDestroyImage(m_image);
++        m_image->f.destroy_image(m_image); /* = XDestroyImage (Xutil.h makró) */
 +        m_image = 0;
 +    }
 +
