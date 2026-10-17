@@ -25,39 +25,17 @@ jobs:
           sudo apt-get install -y build-essential autoconf automake libtool pkg-config git quilt \
             libwayland-dev libwayland-egl-backend-dev wayland-protocols libx11-dev libx11-xcb-dev \
             libxcb1-dev libxcb-dri3-dev libxcb-present-dev libxext-dev libglvnd-dev patchelf python3
-      - name: android-headers (halium-13.0)
+      - name: GPU-build (gpu-build.sh – ugyanaz, ami a rootfs-be kerül)
         run: |
-          git clone --depth 1 -b halium-13.0 https://github.com/halium/android-headers ah
-          git -C ah log -1 --format='android-headers %H %cd'
-          sudo make -C ah PREFIX=/usr install
-      - name: libhybris (droidian ág)
-        run: |
-          git clone --depth 1 -b droidian https://github.com/droidian/libhybris lh
-          git -C lh log -1 --format='libhybris %H %cd'
-          for p in "$GITHUB_WORKSPACE"/devices/samsung-a51/gpu/libhybris-patches/*.patch; do
-            echo "patch: $p"; git -C lh apply "$p"
-          done
-          cd lh
-          # A debian/patches tartalma (env_hybris_ld_shim_libs) a droidian ágban már benne van.
-          cd hybris
-          NOCONFIGURE=1 ./autogen.sh
-          ./configure --prefix=/usr --libdir=/usr/lib/aarch64-linux-gnu --sysconfdir=/etc \
-            --enable-wayland --with-android-headers=/usr/include/android \
-            --enable-property-cache --enable-experimental --enable-glvnd \
-            --enable-arch=arm64 --enable-mali-quirks --enable-debug --enable-trace \
-            --with-default-hybris-ld-library-path=/vendor/lib64:/vendor/lib64/hw:/vendor/lib64/egl:/system/lib64:/apex/com.android.runtime/lib64/bionic:/apex/com.android.runtime/lib64:/apex/com.android.vndk.v33/lib64
-          make -j"$(nproc)"
-          make DESTDIR="$GITHUB_WORKSPACE/out" install
+          sudo apt-get install -y curl unzip e2fsprogs
+          ./devices/samsung-a51/gpu/gpu-build.sh "$GITHUB_WORKSPACE/out"
       - name: Csomag
         run: |
-          cd out && tar -czf ../libhybris-a51-arm64.tar.gz . && cd ..
-          ls -la libhybris-a51-arm64.tar.gz
-          # A konfigurált build-fa is (a telefonon gyors újrafordításhoz: make -C hybris/common).
-          tar -czf libhybris-a51-buildfa.tar.gz lh ah
-          find out -name 'test_*' -o -name '*.so*' | head -80
+          tar -C out -czf libhybris-a51-rel.tar.gz --exclude=usr/lib/mamuthka/gpu/android usr/lib/mamuthka/gpu
+          ls -la libhybris-a51-rel.tar.gz
+          find out -maxdepth 6 | head -50
+          du -sh out/usr/lib/mamuthka/gpu/*
       - uses: actions/upload-artifact@v4
         with:
-          name: libhybris-a51-arm64
-          path: |
-            libhybris-a51-arm64.tar.gz
-            libhybris-a51-buildfa.tar.gz
+          name: libhybris-a51-rel
+          path: libhybris-a51-rel.tar.gz
