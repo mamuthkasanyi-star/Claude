@@ -1,0 +1,24 @@
+#!/bin/sh
+# Az Androidban az init kapcsolja be a szenzorhubot (Exynos CHUB, Cortex-M4).
+# A firmware (sensorhub/shub_*.fw) a kernelbe van építve; a poweron letölti
+# és elindítja, utána az SSP-driver inicializálja a szenzorokat.
+# Az ssp_sensor/enable-t az „input” csoport is írhatja: így a felhasználói
+# forgató daemon (mamuthka-forgatas) maga kapcsolja be/ki a gyorsulásmérőt
+# (kikapcsolt kijelzőnél ki – nem fogyaszt).
+P=/sys/devices/platform/11980000.contexthub/poweron
+E=/sys/class/sensors/ssp_sensor/enable
+A=/sys/class/sensors/accelerometer_sensor/raw_data
+if ! cat "$A" >/dev/null 2>&1; then
+	echo 1 > "$P" || { echo "contexthub poweron sikertelen"; exit 1; }
+fi
+i=0
+while [ $i -lt 100 ] && ! cat "$A" >/dev/null 2>&1; do
+	sleep 0.2; i=$((i + 1))
+done
+if cat "$A" >/dev/null 2>&1; then
+	echo "szenzorhub fut: $(cat /sys/class/sensors/ssp_sensor/mcu_name 2>/dev/null), accel=$(cat /sys/class/sensors/accelerometer_sensor/name 2>/dev/null)"
+else
+	echo "a szenzorhub elindult, de a gyorsulásmérő nem jelentkezett (raw_data EINVAL)"
+fi
+chgrp input "$E" && chmod 664 "$E"
+exit 0

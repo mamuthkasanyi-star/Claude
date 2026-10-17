@@ -1,0 +1,5 @@
+# Galaxy A51: a gyári Mali-blob (libGLES_mali.so → libion_exynos.so) a
+# puffereit az ION-ból foglalja. A /dev/mali0 már 0666, az ION alapból
+# 0600 root – a GPU-próbához (libhybris, user-ként) a video csoport kapja meg.
+# (Androidon: /dev/ion 0664 system:system.)
+KERNEL=="ion", SUBSYSTEM=="misc", GROUP="video", MODE="0660"

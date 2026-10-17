@@ -1,0 +1,18 @@
+diff --git a/drivers/fingerprint/et7xx-spi.c b/drivers/fingerprint/et7xx-spi.c
+index d286ca4..d341841 100644
+--- a/drivers/fingerprint/et7xx-spi.c
++++ b/drivers/fingerprint/et7xx-spi.c
+@@ -858,8 +858,11 @@ static void et7xx_work_func_debug(struct work_struct *work)
+ 
+ static void et7xx_enable_debug_timer(void)
+ {
+-	mod_timer(&g_data->dbg_timer,
+-		round_jiffies_up(jiffies + FPSENSOR_DEBUG_TIMER_SEC));
++	/*
++	 * Mamuthka: a 10 s-os debug-timer (csak egy pr_info) nem deferrable,
++	 * vagyis idle-ből is felébreszti a CPU-t, és teleírja a naplót. Linuxon
++	 * nincs ujjlenyomat-HAL, akinek ez kellene: nem indítjuk el.
++	 */
+ }
+ 
+ static void et7xx_disable_debug_timer(void)

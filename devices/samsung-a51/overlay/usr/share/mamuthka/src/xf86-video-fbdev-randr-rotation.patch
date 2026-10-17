@@ -1,0 +1,128 @@
+--- a/src/fbdev.c
++++ b/src/fbdev.c
+@@ -125,7 +125,8 @@
+ 	OPTION_SHADOW_FB,
+ 	OPTION_ROTATE,
+ 	OPTION_FBDEV,
+-	OPTION_DEBUG
++	OPTION_DEBUG,
++	OPTION_RANDR_ROTATION
+ } FBDevOpts;
+ 
+ static const OptionInfoRec FBDevOptions[] = {
+@@ -133,6 +134,7 @@
+ 	{ OPTION_ROTATE,	"Rotate",	OPTV_STRING,	{0},	FALSE },
+ 	{ OPTION_FBDEV,		"fbdev",	OPTV_STRING,	{0},	FALSE },
+ 	{ OPTION_DEBUG,		"debug",	OPTV_BOOLEAN,	{0},	FALSE },
++	{ OPTION_RANDR_ROTATION, "RandRRotation", OPTV_BOOLEAN,	{0},	FALSE },
+ 	{ -1,			NULL,		OPTV_NONE,	{0},	FALSE }
+ };
+ 
+@@ -195,6 +197,10 @@
+ 	DGAModePtr			pDGAMode;
+ 	int				nDGAMode;
+ 	OptionInfoPtr			Options;
++	/* Mamuthka: RandR rotation at runtime via the shadow layer */
++	Bool				rrRotation;
++	int				hwWidth;
++	int				hwHeight;
+ } FBDevRec, *FBDevPtr;
+ 
+ #define FBDEVPTR(p) ((FBDevPtr)((p)->driverPrivate))
+@@ -588,6 +594,16 @@
+ 	  }
+ 	}
+ 
++	/* Mamuthka: runtime RandR rotation (xrandr -o left/right/inverted) */
++	fPtr->rrRotation = xf86ReturnOptValBool(fPtr->Options, OPTION_RANDR_ROTATION, FALSE);
++	if (fPtr->rrRotation && (fPtr->rotate || fPtr->shadow24 || !fPtr->shadowFB)) {
++	    xf86DrvMsg(pScrn->scrnIndex, X_WARNING,
++		       "RandRRotation needs ShadowFB without static Rotate, disabled\n");
++	    fPtr->rrRotation = FALSE;
++	} else if (fPtr->rrRotation) {
++	    xf86DrvMsg(pScrn->scrnIndex, X_CONFIG, "RandR rotation enabled\n");
++	}
++
+ 	/* select video modes */
+ 
+ 	xf86DrvMsg(pScrn->scrnIndex, X_INFO, "checking modes against framebuffer device...\n");
+@@ -850,6 +866,8 @@
+ 	}
+ 
+ 	fPtr->fbstart = fPtr->fbmem + fPtr->fboff;
++	fPtr->hwWidth = pScrn->virtualX;
++	fPtr->hwHeight = pScrn->virtualY;
+ 
+ 	if (fPtr->shadowFB) {
+ 	    fPtr->shadow = calloc(1, pScrn->displayWidth * pScrn->virtualY *
+@@ -1262,15 +1280,70 @@
+ }
+ 
+ static Bool
++FBDevRandRSetConfig(ScrnInfoPtr pScrn, xorgRRConfig *config)
++{
++    FBDevPtr fPtr = FBDEVPTR(pScrn);
++    ScreenPtr pScreen = xf86ScrnToScreen(pScrn);
++    PixmapPtr pPixmap;
++    int rot = config->rotation & (RR_Rotate_0 | RR_Rotate_90 |
++                                  RR_Rotate_180 | RR_Rotate_270);
++    int w = fPtr->hwWidth, h = fPtr->hwHeight;
++    int cpp = (pScrn->bitsPerPixel + 7) / 8;
++
++    if (!pScreen || !fPtr->shadow)
++        return FALSE;
++    switch (rot) {
++    case RR_Rotate_0:
++    case RR_Rotate_180:
++        break;
++    case RR_Rotate_90:
++    case RR_Rotate_270:
++        w = fPtr->hwHeight;
++        h = fPtr->hwWidth;
++        break;
++    default:
++        return FALSE;
++    }
++    pPixmap = pScreen->GetScreenPixmap(pScreen);
++    if (!pPixmap)
++        return FALSE;
++    /* Same shadow buffer (w*h is unchanged), new geometry. */
++    if (!pScreen->ModifyPixmapHeader(pPixmap, w, h, -1, -1, w * cpp, NULL))
++        return FALSE;
++    pScrn->displayWidth = w;
++    shadowRemove(pScreen, pPixmap);
++    if (!shadowAdd(pScreen, pPixmap,
++                   rot == RR_Rotate_0 ? fbdevUpdatePacked : fbdevUpdateRotatePacked,
++                   FBDevWindowLinear, rot == RR_Rotate_0 ? 0 : rot, NULL))
++        return FALSE;
++    xf86DrvMsg(pScrn->scrnIndex, X_INFO, "RandR rotation 0x%x (%dx%d)\n",
++               rot, w, h);
++    return TRUE;
++}
++
++static Bool
+ FBDevDriverFunc(ScrnInfoPtr pScrn, xorgDriverFuncOp op, pointer ptr)
+ {
+     xorgHWFlags *flag;
++    FBDevPtr fPtr;
+     
+     switch (op) {
+ 	case GET_REQUIRED_HW_INTERFACES:
+ 	    flag = (CARD32*)ptr;
+ 	    (*flag) = 0;
+ 	    return TRUE;
++	case RR_GET_INFO:
++	    fPtr = FBDEVPTR(pScrn);
++	    if (!fPtr || !fPtr->rrRotation)
++		return FALSE;
++	    ((xorgRRRotation *)ptr)->RRRotations =
++		RR_Rotate_0 | RR_Rotate_90 | RR_Rotate_180 | RR_Rotate_270;
++	    return TRUE;
++	case RR_SET_CONFIG:
++	    fPtr = FBDEVPTR(pScrn);
++	    if (!fPtr || !fPtr->rrRotation)
++		return FALSE;
++	    return FBDevRandRSetConfig(pScrn, &((xorgRRRotation *)ptr)->RRConfig);
+ 	default:
+ 	    return FALSE;
+     }

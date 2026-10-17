@@ -172,9 +172,13 @@ systemctl enable lightdm NetworkManager ssh mamuthka-ssh-keygen mamuthka-resize-
 	mamuthka-efs unattended-upgrades
 systemctl set-default graphical.target
 # Ezek telefonon nem kellenek vagy hibát okoznak a régi kernellel.
-# blueman-mechanism: a kernelben nincs RFKILL/Bluetooth (ImportError: RfKill).
+# blueman-mechanism: a kernelben nincs BlueZ-Bluetooth (a Samsung scsc_bt nem az).
+# keyboard-setup: a konzol-billentyűkiosztás (setupcon) – telefonon nincs
+# konzolbillentyűzet, minden indításkor ~220 „Érvénytelen argumentum” sor; az X
+# a kiosztást az /etc/default/keyboard-ból maga olvassa.
 systemctl mask systemd-firstboot.service systemd-networkd-wait-online.service NetworkManager-wait-online.service \
-	snapd.service snapd.socket ModemManager.service blueman-mechanism.service >/dev/null 2>&1 || true
+	snapd.service snapd.socket ModemManager.service blueman-mechanism.service \
+	keyboard-setup.service >/dev/null 2>&1 || true
 # Firmware-frissítés (LVFS) Samsung telefonra nincs; a napi időzítő csak ébreszt.
 systemctl mask fwupd-refresh.timer >/dev/null 2>&1 || true
 # A hangot a PipeWire (pipewire-pulse) adja; a vele együtt települt PulseAudio
@@ -208,6 +212,13 @@ mkdir -p /efs
 # Az S-Boot a firmware_class.path=/vendor/firmware útvonalat adja át.
 mkdir -p /vendor
 ln -sfn /lib/firmware /vendor/firmware
+
+# Eszközfüggő lépések (devices/*/overlay/usr/share/mamuthka/setup.d/*.sh).
+for f in /usr/share/mamuthka/setup.d/*.sh; do
+	[ -f "$f" ] || continue
+	echo "== $(basename "$f")"
+	bash "$f" || echo "!! $f hibával tért vissza – folytatom"
+done
 
 echo "== Takarítás"
 rm -f /usr/sbin/policy-rc.d

@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Automatikus képernyőforgatás
+Name[hu]=Automatikus képernyőforgatás
+Comment=Gyorsulásmérő alapján forgatja a képet és az érintést
+Exec=/usr/bin/mamuthka-forgatas
+NoDisplay=true
+X-GNOME-Autostart-Phase=Applications

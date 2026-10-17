@@ -1,0 +1,14 @@
+[Unit]
+Description=Mamuthka linux: SSP szenzorhub (Exynos CHUB) indítása – gyorsulásmérő a forgatáshoz
+Documentation=file:///usr/libexec/mamuthka/sensorhub-start
+ConditionPathExists=/sys/devices/platform/11980000.contexthub/poweron
+After=systemd-udev-trigger.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+TimeoutStartSec=40
+ExecStart=/usr/libexec/mamuthka/sensorhub-start
+
+[Install]
+WantedBy=multi-user.target

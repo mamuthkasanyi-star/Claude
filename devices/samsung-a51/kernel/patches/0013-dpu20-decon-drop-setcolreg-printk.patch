@@ -1,0 +1,10 @@
+--- a/drivers/video/fbdev/exynos/dpu20/decon_dsi.c
++++ b/drivers/video/fbdev/exynos/dpu20/decon_dsi.c
+@@ -825,7 +825,6 @@
+ 	struct decon_device *decon = win->decon;
+ 	unsigned int val;
+ 
+-	printk("@@@@ %s\n", __func__);
+ 	decon_dbg("%s: win %d: %d => rgb=%d/%d/%d\n", __func__, win->idx,
+ 			regno, red, green, blue);
+ 

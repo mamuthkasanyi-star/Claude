@@ -17,6 +17,28 @@ még nem jött fel (javítás: lásd lent, 2026-10-17).
 - Ág: `claude/remote-control-wo3lxh` (a teljes projekt itt; a `main` üres)
 - Release (flashelhető fájlok): https://github.com/mamuthkasanyi-star/Claude/releases/tag/a51-teszt
 
+## Új kör (2026-10-17 délelőtt, a 76e2d56 után) – hibak.txt 66–72
+
+A 76e2d56 fut (boot 9 s, 0 failed, oops nincs). Ebben a körben (flash nélkül,
+a telefonon csak olvasva):
+
+- **Automatikus forgatás (66.):** patchelt fbdev (RandR 1.1, ShadowFB-forgatás,
+  a rootfs-buildben fordul), `mamuthka-sensorhub.service` (CHUB poweron),
+  `mamuthka-forgatas` daemon (accel → `xrandr -o`, xinput-mátrix). Élő próba
+  nem volt (root kellett volna).
+- **Bootlog:** abox extra firmware-ek az initramfs-ben (67.); wlbt hcf/mac.txt
+  ártalmatlan (68.); abox_dump kártya ki a WirePlumberből, UCM nyitott (69.);
+  fps_et7xx/SSP debug-timer, decon_setcolreg, keyboard-setup, RFKILL (70.).
+- **Fogyasztás (71.):** a képernyővédő másodperces órája miatt a cinnamon
+  kikapcsolt kijelzővel ~108% CPU-t vitt → a képernyővédő-óra `%H:%M`.
+- **GPU (72.):** az EGL-próba nem készült el; az akadályok listája a 72.
+  pontban, a `/dev/ion` jogosultsága előkészítve (`70-a51-gpu.rules`).
+
+Flash után ellenőrizendő: `xrandr -q` (a „left/right” a forgatási listában),
+`systemctl status mamuthka-sensorhub`, `cat /sys/class/sensors/accelerometer_sensor/raw_data`,
+`journalctl --user -b | grep mamuthka-forgatas`, képernyővédő alatt `top`
+(cinnamon CPU), `dmesg | grep -c "Direct firmware load"`, `ls -l /dev/rfkill /dev/ion`.
+
 ## Aktuális állapot (2026-10-17): a rendszer elindul – asztal, hang, recovery
 
 A `97bc0e1` boot+recovery+rootfs-szel a Mamuthka linux elindul (systemd

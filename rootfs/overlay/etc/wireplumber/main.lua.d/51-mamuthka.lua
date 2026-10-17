@@ -21,3 +21,11 @@ end
 --   matches = { { { "device.name", "matches", "alsa_card.platform-sound*" } } },
 --   apply_properties = { ["device.disabled"] = true },
 -- })
+
+-- Az „abox_dump” ALSA-kártya az ABOX DSP belső hibakereső lehallgató PCM-jei
+-- (rd0…arc, mind capture): nem valódi mikrofon, mégis ez lett az
+-- alapértelmezett bemenet. Kikapcsolva; a valódi kártya (platform-sound) marad.
+table.insert(alsa_monitor.rules, {
+  matches = { { { "device.name", "equals", "alsa_card.platform-samsung-abox-dump" } } },
+  apply_properties = { ["device.disabled"] = true },
+})

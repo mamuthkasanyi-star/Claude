@@ -622,3 +622,85 @@ A 97BC0E1 ELSŐ RENDSZERINDÍTÁSA (2026-10-16/17): a rendszer fut, ssh megy
     → JAVÍTVA: device.conf INITRAMFS_FIRMWARE (calliope_sram/dram/iva), a
       build-bootimg.sh a VENDOR_FIRMWARE_FILES forrásából letölti, sha512-vel
       ellenőrzi és az initramfs /lib/firmware-ébe teszi (~2,2 MB).
+
+66. [FEJLESZTÉS] Automatikus képernyőforgatás.
+    Akadály: a gyári xf86-video-fbdev 0.5.0 nem ad RandR-forgatást (csak
+    „normal”), DRM nincs; a gyorsulásmérő (SSP/CHUB) alapból ki van kapcsolva.
+    → ELKÉSZÜLT (repó, élő próba nélkül):
+      - usr/share/mamuthka/src/xf86-video-fbdev-randr-rotation.patch +
+        setup.d/50-fbdev-forgatas.sh: a rootfs-buildben újrafordítja az fbdev
+        drivert (sha256-ellenőrzött x.org tarball), dpkg-divert-tel cseréli; a
+        RR_GET_INFO/RR_SET_CONFIG a ShadowFB shadow-pixmapját átméretezi és a
+        shadowUpdateRotatePacked-et kapcsolja. Csak Option "RandRRotation" "on"
+        mellett él (10-a51-fbdev.conf). Ha nem fordul le: gyári driver marad.
+      - mamuthka-sensorhub.service + /usr/libexec/mamuthka/sensorhub-start:
+        contexthub poweron, vár a raw_data-ra, az ssp_sensor/enable-t az
+        input csoportnak adja.
+      - /usr/bin/mamuthka-forgatas (autostart): accel → xrandr -o + libinput
+        „Coordinate Transformation Matrix”; kikapcsolt kijelzőnél az accelt
+        lekapcsolja; X-leállás forgatás közben → magától kikapcsol
+        (~/.config/mamuthka-forgatas.off). Tengelyek: /etc/mamuthka/forgatas.conf.
+    Flash után ellenőrizendő: xrandr -q (left/right a listában), forgatás,
+    érintés iránya; ha a tengely fordított: swap_xy / invert_x / invert_y.
+
+67. [KISEBB] Bootlog: abox „Direct firmware load for spkamp.bin /
+    AP_AUDIO_SLSI.bin / APBargeIn_AUDIO_SLSI.bin / APBiBF_AUDIO_SLSI.bin /
+    param_ti.bin / APTV_AUDIO_SLSI.bin failed with error -2” 2,2 s-nál.
+    Ok: ugyanaz, mint a 65.: a /init előtt kéri, a rootfs-ben megvannak.
+    → JAVÍTVA: mind az öt az INITRAMFS_FIRMWARE-ben (~0,17 MB). Az
+      APTV_AUDIO_SLSI.bin a gyári dumpban sincs (404) – ártalmatlan.
+
+68. [INFO] Bootlog wlbt: mx140_common.hcf, mx140_localmib.hcf és
+    …/conf/wlan/mac.txt -2. A két hcf a gyári dumpban sincs; a mac.txt helyett
+    a driver a MAC-et utána a /efs/wifi/.mac.info-ból tölti (mount-efs, csak
+    olvasva) – a dmesg szerint sikerrel. Nincs teendő; MAC nem kerül a repóba.
+
+69. [KISEBB] Hang: a PipeWire-ben van kimenet (Built-in Audio, stereo-fallback
+    a hw:0 RDMA0-ra), de UCM nincs; az ABOX/TAS2562 útvonalat (mixer) senki nem
+    állítja be, így a hangszóró valószínűleg néma. Az alapértelmezett bemenet
+    az „abox_dump” kártya volt (DSP-lehallgató, nem mikrofon).
+    → JAVÍTVA: wireplumber 51-mamuthka.lua: az abox_dump kártya kikapcsolva.
+    NYITVA: UCM2 (Exynos9610-Audio) a gyári vendor/etc/mixer_paths.xml
+      „speaker”/„headphone” útvonalából – élő meghallgatás kell hozzá.
+      alsactl restore exit 99: nincs mentett állapot, ártalmatlan.
+
+70. [FOGYASZTÁS] Kernel-ébresztők és naplózaj:
+    - fps_et7xx: 10 s-onként nem-deferrable debug-timer (pr_info) → patch 0011:
+      nem indul el (Linuxon nincs ujjlenyomat-HAL).
+    - SSP: 5 s-onként „Sensor state … En: 0x0” → patch 0012: deferrable timer,
+      és ha egy szenzor sincs bekapcsolva, nem naplóz (a no-event-ellenőrzés
+      aktív szenzornál megmarad).
+    - DECON: 448× „@@@@ decon_setcolreg” induláskor → patch 0013.
+    - keyboard-setup.service: ~220× „Érvénytelen argumentum” (nincs konzol-
+      billentyűzet) → maszkolva.
+    - wpa_supplicant „Cannot open RFKILL control device” → CONFIG_RFKILL=y.
+    Csak induláskor, ártalmatlan (nem javítva): ufshcd_ioctl „Illegal
+    ufs-IOCTL” (udev-lemezazonosítás), RDMA/WDMA hw_params (a PipeWire
+    egyszer végigpróbálja a PCM-eket).
+
+71. [SÚLYOS] Fogyasztás: a cinnamon ~108% CPU-t visz kikapcsolt kijelzővel,
+    amíg a képernyővédő aktív (76e2d56, 20 perc uptime alatt 18 perc CPU).
+    Mérés (0,1 s-os mintavétel): pontosan másodpercenként egy ~0,8 CPU-s
+    löket, 8 llvmpipe-szálon. Ok: a cinnamon-screensaver órája
+    (CinnamonDesktop.WallClock) a clock-show-seconds=true miatt másodperces;
+    minden tick a teljes képernyős ablakot rajzoltatja újra a kompozitorral.
+    → JAVÍTVA: gschema: org.cinnamon.desktop.screensaver use-custom-format=true,
+      time-format='%H:%M' (a panelóra továbbra is másodperces).
+    Flash után ellenőrizendő: top, képernyővédő alatt a cinnamon CPU-ja.
+    Ha még mindig magas, következő lépés: idle-activation-enabled=false (a zár
+    úgyis ki van kapcsolva; a kijelző-alvást a csd-power DPMS-sel végzi).
+
+72. [FEJLESZTÉS] GPU (Mali-G72) EGL-próba – NEM KÉSZÜLT EL, akadályok:
+    - A gyári vendor/lib64/egl/libGLES_mali.so (r38p1-01bet0, Android 13 /
+      API 33 NDK-jegy) verziója egyezik a kernel kbase r38p1-ével – ez jó.
+    - Függőségei: libnativewindow, libutils, libgralloctypes, liblog,
+      libion_exynos, libbase, libz, libcutils, libhidlbase, libhardware,
+      libc++ + bionic libc/libm/libdl (API 33). Ehhez libhybris kell, Android
+      13-as (API 33) bionic-linkerrel; noble arm64-re csomag nincs, forrásból
+      kell fordítani (android-headers-33-mal).
+    - A libion_exynos /dev/ion-t nyit, ami 0600 root → user-ként nem megy.
+      → ELŐKÉSZÍTVE: 70-a51-gpu.rules (/dev/ion root:video 0660).
+    - A gralloc (libhardware → hw/gralloc.exynos9610.so) és a libhidlbase
+      hwservicemanager nélkül valószínűleg csak pbuffer-próbát enged.
+    Következő mérföldkő: libhybris build (CI), majd user-ként test_egl
+    (eglGetDisplay/eglInitialize, pbuffer).

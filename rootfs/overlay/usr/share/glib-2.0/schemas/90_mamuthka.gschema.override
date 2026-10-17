@@ -9,7 +9,7 @@ cursor-size=24
 # a kompozitor llvmpipe-pal, CPU-n rajzol, ezért animációk nélkül fut.
 enable-animations=false
 # Panelóra: 24 órás, másodpercekkel (a user kérése; másodpercenként egy kis
-# panel-újrarajzolás, kikapcsolt kijelzőnél a képernyővédő alatt nem fut).
+# panel-újrarajzolás). A képernyővédő órája lent saját formátumot kap.
 clock-show-seconds=true
 clock-use-24h=true
 
@@ -69,6 +69,14 @@ lock-delay=uint32 0
 # A lebegő óra/album-widget a zárolt képernyőn folyamatosan mozog és rajzol
 # (llvmpipe, kikapcsolt kijelzőnél is) – fogyasztás miatt kikapcsolva.
 floating-widgets=false
+# A képernyővédő órája alapból a clock-show-seconds-ot követi (WallClock):
+# másodpercenként újrarajzolja a teljes képernyős ablakot, ami llvmpipe-pal
+# ~0,8 CPU-másodperc/másodperc – kikapcsolt kijelzőnél is (mérve a 76e2d56-on:
+# cinnamon 108% CPU, 8 llvmpipe-szál, pontosan másodperces löketek; hibak.txt).
+# Saját formátum másodpercek nélkül → percenként egy rajzolás.
+use-custom-format=true
+time-format='%H:%M'
+date-format='%A %B %e'
 
 # Érintőképernyős billentyűzet (Onboard): szövegmezőnél automatikusan feljön.
 [org.cinnamon.desktop.a11y.applications]

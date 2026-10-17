@@ -1,0 +1,25 @@
+diff --git a/drivers/sensorhub/ssp_debug.c b/drivers/sensorhub/ssp_debug.c
+index e3c7610..6710ace 100755
+--- a/drivers/sensorhub/ssp_debug.c
++++ b/drivers/sensorhub/ssp_debug.c
+@@ -263,6 +263,10 @@ static void debug_work_func(struct work_struct *work)
+ 	struct ssp_data *data = container_of(work, struct ssp_data, work_debug);
+ 	unsigned int type;
+ 
++	/* Mamuthka: ha egy szenzor sincs bekapcsolva, nincs mit naplózni/ellenőrizni. */
++	if (!atomic64_read(&data->sensor_en_state))
++		return;
++
+ 	ssp_infof("FW(%d):%u, Sensor state: 0x%llx, En: 0x%llx, Reset cnt: %d[%d : C %u(%u, %u), N %u, %u]",
+ 		  data->fw_type, data->curr_fw_rev,
+ 		  data->sensor_probe_state, data->sensor_en_state,
+@@ -303,7 +307,8 @@ void disable_debug_timer(struct ssp_data *data)
+ 
+ int initialize_debug_timer(struct ssp_data *data)
+ {
+-	setup_timer(&data->debug_timer, debug_timer_func, (unsigned long)data);
++	/* Mamuthka: deferrable – idle-ből nem ébreszti fel a CPU-t. */
++	setup_deferrable_timer(&data->debug_timer, debug_timer_func, (unsigned long)data);
+ 
+ 	data->debug_wq = create_singlethread_workqueue("ssp_debug_wq");
+ 	if (!data->debug_wq) {

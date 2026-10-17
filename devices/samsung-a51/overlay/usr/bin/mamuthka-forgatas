@@ -1,0 +1,228 @@
+#!/usr/bin/python3 -I
+# Mamuthka linux – automatikus képernyőforgatás (Galaxy A51).
+#
+# A gyorsulásmérőt az SSP szenzorhub adja (mamuthka-sensorhub.service):
+#   /sys/class/sensors/accelerometer_sensor/raw_data  -> "x,y,z"
+#   /sys/class/sensors/ssp_sensor/enable              -> "11" be, "10" ki (accel = 1-es típus)
+# A forgatás: xrandr -o normal|left|right|inverted (a Mamuthka fbdev-patch
+# adja, RandR 1.1), az érintés: libinput „Coordinate Transformation Matrix”.
+# Kikapcsolt kijelzőnél a gyorsulásmérőt kikapcsolja.
+# Ha egy forgatás közben az X leállt (driverhiba), a következő indításkor
+# magától kikapcsol (~/.config/mamuthka-forgatas.off), hogy ne legyen hurok.
+import math
+import os
+import subprocess
+import sys
+import time
+
+HOME = os.path.expanduser("~")
+CONF = ["/etc/mamuthka/forgatas.conf", os.path.join(HOME, ".config/mamuthka-forgatas.conf")]
+OFF = os.path.join(HOME, ".config/mamuthka-forgatas.off")
+PENDING = os.path.join(HOME, ".cache/mamuthka-forgatas.pending")
+RAW = "/sys/class/sensors/accelerometer_sensor/raw_data"
+ENABLE = "/sys/class/sensors/ssp_sensor/enable"
+BL = "/sys/class/backlight/panel"
+MATRIX = {
+    "normal": "1 0 0 0 1 0 0 0 1",
+    "left": "0 -1 1 1 0 0 0 0 1",
+    "inverted": "-1 0 1 0 -1 1 0 0 1",
+    "right": "0 1 0 -1 0 1 0 0 1",
+}
+
+
+def log(msg):
+    print("mamuthka-forgatas: " + msg, file=sys.stderr, flush=True)
+
+
+def conf():
+    c = {"enabled": "1", "swap_xy": "0", "invert_x": "0", "invert_y": "0",
+         "allow_inverted": "0", "touch": "sec_touchscreen",
+         "interval": "0.4", "settle": "0.8"}
+    for p in CONF:
+        try:
+            with open(p) as f:
+                for line in f:
+                    line = line.strip()
+                    if line and not line.startswith("#") and "=" in line:
+                        k, v = line.split("=", 1)
+                        c[k.strip()] = v.strip()
+        except OSError:
+            pass
+    return c
+
+
+def read(p):
+    try:
+        with open(p) as f:
+            return f.read().strip()
+    except OSError:
+        return None
+
+
+def write(p, v):
+    try:
+        with open(p, "w") as f:
+            f.write(v)
+        return True
+    except OSError:
+        return False
+
+
+def accel_enabled():
+    v = read(ENABLE)
+    try:
+        return bool(int(v) & (1 << 1))
+    except (TypeError, ValueError):
+        return False
+
+
+def set_accel(on):
+    if accel_enabled() != on:
+        write(ENABLE, "11" if on else "10")
+
+
+_xset_t = 0.0
+_xset_on = True
+
+
+def screen_on():
+    global _xset_t, _xset_on
+    b = read(BL + "/brightness")
+    p = read(BL + "/bl_power")
+    if b == "0" or (p not in (None, "0")):
+        return False
+    now = time.monotonic()
+    if now - _xset_t > 3:
+        _xset_t = now
+        try:
+            out = subprocess.run(["xset", "q"], capture_output=True, text=True, timeout=3).stdout
+            _xset_on = "Monitor is Off" not in out and "Monitor is in Standby" not in out \
+                and "Monitor is in Suspend" not in out
+        except (OSError, subprocess.SubprocessError):
+            _xset_on = True
+    return _xset_on
+
+
+def current_rotation():
+    try:
+        out = subprocess.run(["xrandr", "-q"], capture_output=True, text=True, timeout=5).stdout
+    except (OSError, subprocess.SubprocessError):
+        return "normal"
+    for line in out.splitlines():
+        if " connected" in line:
+            w = line.split("(")[0].split()
+            for r in ("left", "right", "inverted"):
+                if r in w:
+                    return r
+            return "normal"
+    return "normal"
+
+
+def supported():
+    try:
+        out = subprocess.run(["xrandr", "-q", "--verbose"], capture_output=True, text=True, timeout=5).stdout
+    except (OSError, subprocess.SubprocessError):
+        return False
+    for line in out.splitlines():
+        if " connected" in line and "(" in line:
+            return "left" in line.split("(", 1)[1]
+    return False
+
+
+def apply(rot, c):
+    os.makedirs(os.path.dirname(PENDING), exist_ok=True)
+    write(PENDING, rot)
+    r = subprocess.run(["xrandr", "-o", rot], capture_output=True, text=True, timeout=10)
+    ok = r.returncode == 0
+    if ok:
+        subprocess.run(["xinput", "set-prop", "pointer:" + c["touch"],
+                        "Coordinate Transformation Matrix"] + MATRIX[rot].split(),
+                       capture_output=True, timeout=10)
+    else:
+        log("xrandr -o %s: %s" % (rot, r.stderr.strip()))
+    try:
+        os.unlink(PENDING)
+    except OSError:
+        pass
+    return ok
+
+
+def classify(x, y, z, c):
+    if c["swap_xy"] == "1":
+        x, y = y, x
+    if c["invert_x"] == "1":
+        x = -x
+    if c["invert_y"] == "1":
+        y = -y
+    n = math.sqrt(x * x + y * y + z * z)
+    if n == 0:
+        return None
+    ax, ay = abs(x), abs(y)
+    # Laposan fekvő telefonnál (z dominál) nincs döntés; hiszterézis: a domináns
+    # tengely legyen legalább 1,4-szerese a másiknak.
+    if max(ax, ay) < 0.5 * n:
+        return None
+    if ay >= 1.4 * ax:
+        if y > 0:
+            return "normal"
+        return "inverted" if c["allow_inverted"] == "1" else None
+    if ax >= 1.4 * ay:
+        return "left" if x < 0 else "right"
+    return None
+
+
+def main():
+    c = conf()
+    if c["enabled"] != "1" or os.path.exists(OFF):
+        log("kikapcsolva")
+        return 0
+    if os.path.exists(PENDING):
+        # Az előző forgatás közben leállt a munkamenet: biztonsági kikapcsolás.
+        os.makedirs(os.path.dirname(OFF), exist_ok=True)
+        write(OFF, "Az X leállt egy forgatás közben (%s); a forgatás kikapcsolva.\n" % read(PENDING))
+        os.unlink(PENDING)
+        log("az előző forgatás közben leállt az X – kikapcsolom (%s)" % OFF)
+        return 0
+    if not supported():
+        log("az X nem tud forgatni (xrandr: csak normal) – kilépek")
+        return 0
+    interval = float(c["interval"])
+    settle = float(c["settle"])
+    cur = current_rotation()
+    if cur != "normal":
+        apply(cur, c)  # az érintés mátrixa is legyen összhangban
+    cand, since = None, 0.0
+    while True:
+        if os.path.exists(OFF):
+            set_accel(False)
+            return 0
+        if not screen_on():
+            set_accel(False)
+            cand = None
+            time.sleep(2)
+            continue
+        set_accel(True)
+        raw = read(RAW)
+        try:
+            x, y, z = (int(v) for v in raw.split(",")[:3])
+        except (AttributeError, ValueError):
+            time.sleep(5)
+            continue
+        r = classify(x, y, z, c)
+        now = time.monotonic()
+        if r is None or r == cur:
+            cand = None
+        elif r != cand:
+            cand, since = r, now
+        elif now - since >= settle:
+            if apply(r, c):
+                cur = r
+            cand = None
+        time.sleep(interval)
+
+
+if __name__ == "__main__":
+    try:
+        sys.exit(main())
+    except KeyboardInterrupt:
+        pass
