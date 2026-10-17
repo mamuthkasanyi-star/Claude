@@ -34,7 +34,7 @@ jobs:
           git clone --depth 1 -b droidian https://github.com/droidian/libhybris lh
           git -C lh log -1 --format='libhybris %H %cd'
           cd lh
-          QUILT_PATCHES=debian/patches quilt push -a
+          # A debian/patches tartalma (env_hybris_ld_shim_libs) a droidian ágban már benne van.
           cd hybris
           NOCONFIGURE=1 ./autogen.sh
           ./configure --prefix=/usr --libdir=/usr/lib/aarch64-linux-gnu --sysconfdir=/etc \
