@@ -1,0 +1,44 @@
+#!/bin/sh
+# Mamuthka linux – Cinnamon indító: GPU-val (Mali-G72, libhybris, GLES2) vagy
+# szoftveres rajzolással (Mesa llvmpipe).
+#
+# Kapcsoló: /etc/mamuthka/grafika.conf, felhasználónként
+# ~/.config/mamuthka/grafika.conf:  GPU=1 (Mali) | GPU=0 (llvmpipe)
+# Önvédelem: ha a GPU-s Cinnamon összeomlik (a cinnamon-launcher ilyenkor
+# MAMUTHKA_GPU_TILTVA=1-gyel indítja újra), vagy 90 másodpercen belül újra
+# indul, a munkamenet hátralevő részében llvmpipe-pal fut.
+# A /usr/local/bin a PATH-ban a /usr/bin előtt van: a cinnamon-launcher és a
+# global.reexec_self() is ezt indítja.
+# A GPU-s környezeti változókat a gpu-env-takarito.so az első kirajzolás után
+# törli, így a Cinnamonból indított programok a megszokott Mesa-t használják.
+VALODI=/usr/bin/cinnamon
+gpu=1
+for f in /etc/mamuthka/grafika.conf "$HOME/.config/mamuthka/grafika.conf"; do
+	[ -r "$f" ] || continue
+	v=$(sed -n 's/^[[:space:]]*GPU=\([01]\)[[:space:]]*$/\1/p' "$f" | tail -n 1)
+	[ -n "$v" ] && gpu=$v
+done
+[ "${MAMUTHKA_GPU_TILTVA:-0}" = 1 ] && gpu=0
+
+envf=/usr/lib/mamuthka/gpu/cinnamon-gpu.env
+[ -r "$envf" ] && [ -c /dev/mali0 ] || gpu=0
+
+jel="${XDG_RUNTIME_DIR:-/tmp}/mamuthka-gpu.inditas"
+if [ "$gpu" = 1 ] && [ -f "$jel" ]; then
+	most=$(date +%s); volt=$(cat "$jel" 2>/dev/null || echo 0)
+	if [ $((most - volt)) -lt 90 ]; then
+		echo "mamuthka-gpu: a GPU-s Cinnamon nemrég újraindult – llvmpipe a munkamenet végéig" >&2
+		gpu=0
+		export MAMUTHKA_GPU_TILTVA=1
+	fi
+fi
+
+if [ "$gpu" = 1 ]; then
+	date +%s > "$jel"
+	echo "mamuthka-gpu: Cinnamon GPU-val (libhybris, $envf)" >&2
+	# shellcheck disable=SC1090
+	. "$envf"
+else
+	echo "mamuthka-gpu: Cinnamon llvmpipe-pal" >&2
+fi
+exec "$VALODI" "$@"

@@ -1,0 +1,72 @@
+From 9542e13bc7f957ee9665bfd1c52f2df319c9cda7 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sat, 17 Oct 2026 15:35:58 +0200
+Subject: [PATCH] =?UTF-8?q?x11:=20XImage=20=C3=BAjral=C3=A9trehoz=C3=A1sa?=
+ =?UTF-8?q?=20=C3=A1tm=C3=A9retez=C3=A9skor=20(forgat=C3=A1s)?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+---
+ hybris/egl/platforms/x11/x11_window.cpp | 27 +++++++++++++++++++++++--
+ 1 file changed, 25 insertions(+), 2 deletions(-)
+
+diff --git a/hybris/egl/platforms/x11/x11_window.cpp b/hybris/egl/platforms/x11/x11_window.cpp
+index 687ccb4..3479cf8 100644
+--- a/hybris/egl/platforms/x11/x11_window.cpp
++++ b/hybris/egl/platforms/x11/x11_window.cpp
+@@ -611,6 +611,25 @@ void X11NativeWindow::copyToX11(X11NativeWindowBuffer *wnb) {
+     TRACE("wnb:%p lock to vaddr %p", wnb, vaddr);
+     TRACE("wnb:%p width=%d stride=%d height=%d format=%d", wnb, wnb->width, wnb->stride, wnb->height, wnb->format);
+ 
++    /* Mamuthka (Galaxy A51): a kijelző forgatásakor (RandR) az ablak, így a
++     * pufferek mérete is megváltozik (1080x2400 <-> 2400x1080). Az XImage-et
++     * eddig csak egyszer hozta létre, így forgatás után a régi stride-dal és
++     * magassággal másolt: a kép szétesett. Méretváltozáskor újra létrehozzuk. */
++    if (m_image && (m_image->width != wnb->stride || m_image->height != wnb->height))
++    {
++        TRACE("wnb:%p XImage %dx%d -> %dx%d", wnb, m_image->width, m_image->height,
++              wnb->stride, wnb->height);
++        if (m_useShm)
++        {
++            XShmDetach(m_display, &m_shminfo);
++            XSync(m_display, False);
++            shmdt(m_shminfo.shmaddr);
++        }
++        m_image->data = NULL;
++        m_image->f.destroy_image(m_image); /* = XDestroyImage (Xutil.h makró) */
++        m_image = 0;
++    }
++
+     if (!m_image)
+     {
+         if (m_useShm)
+@@ -630,6 +649,10 @@ void X11NativeWindow::copyToX11(X11NativeWindowBuffer *wnb) {
+             TRACE("m_shminfo.shmaddr %p", m_shminfo.shmaddr);
+ 
+             XShmAttach(m_display, &m_shminfo);
++            /* Az X szerver már csatolta: a szegmens a kilépéskor (vagy az
++             * újralétrehozáskor) magától felszabadul, nem marad szivárgó SHM. */
++            XSync(m_display, False);
++            shmctl(m_shminfo.shmid, IPC_RMID, 0);
+         }
+         else
+         {
+@@ -645,12 +668,12 @@ void X11NativeWindow::copyToX11(X11NativeWindowBuffer *wnb) {
+     {
+         memcpy(m_image->data, vaddr, m_image->bytes_per_line * m_image->height);
+         hybris_gralloc_unlock(wnb->handle);
+-        XShmPutImage(m_display, m_window, m_gc, m_image, 0, 0, 0, 0, m_width, m_height, 0);
++        XShmPutImage(m_display, m_window, m_gc, m_image, 0, 0, 0, 0, wnb->width, wnb->height, 0);
+     }
+     else
+     {
+         m_image->data = (char *)vaddr;
+-        XPutImage(m_display, m_window, m_gc, m_image, 0, 0, 0, 0, m_width, m_height);
++        XPutImage(m_display, m_window, m_gc, m_image, 0, 0, 0, 0, wnb->width, wnb->height);
+         hybris_gralloc_unlock(wnb->handle);
+     }
+ 
+-- 
+2.43.0
+

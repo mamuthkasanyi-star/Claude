@@ -54,6 +54,12 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y debootstrap e2fsprogs python3-pil zstd curl gcc binutils cpio
+      - name: GPU (libhybris + gyári Mali-meghajtó)
+        run: |
+          sudo apt-get install -y build-essential autoconf automake libtool pkg-config git unzip \
+            libwayland-dev libwayland-egl-backend-dev wayland-protocols libx11-dev libx11-xcb-dev \
+            libxcb1-dev libxcb-dri3-dev libxcb-present-dev libxext-dev libglvnd-dev
+          ./devices/samsung-a51/gpu/gpu-build.sh out/samsung-a51/extra-root
       - name: Rendszer (Ubuntu 24.04 + Cinnamon) építése
         run: sudo -E ./scripts/build-rootfs.sh
       - name: Recovery ramdisk

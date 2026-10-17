@@ -51,6 +51,12 @@ log "Fájlok másolása (közös + eszköz overlay)"
 CPO=(cp -a --no-preserve=ownership)
 "${CPO[@]}" "$ROOT_DIR/rootfs/overlay/." "$ROOTFS/"
 [ -d "$DEVICE_DIR/overlay" ] && "${CPO[@]}" "$DEVICE_DIR/overlay/." "$ROOTFS/"
+# Előre lefordított/letöltött eszközfájlok (pl. Galaxy A51 GPU: a CI-ban a
+# devices/samsung-a51/gpu/gpu-build.sh készíti az $OUT_DIR/extra-root alá).
+if [ -d "$OUT_DIR/extra-root" ]; then
+	log "Eszközfájlok: $OUT_DIR/extra-root"
+	"${CPO[@]}" "$OUT_DIR/extra-root/." "$ROOTFS/"
+fi
 # A saját fájljaid (docs/pmos-javitasok.md, 1. pont) – ezek írnak felül mindent.
 if [ -d "$ROOT_DIR/sajat/rootfs" ]; then
 	log "Saját fájlok: sajat/rootfs"

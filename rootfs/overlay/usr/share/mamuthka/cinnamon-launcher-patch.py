@@ -65,6 +65,10 @@ def mamuthka_auto_restart(exit_status):
         pass
     print("cinnamon-launcher: a cinnamon összeomlott (jel: %d), újraindítás "
           "(%d/%d)" % (sig, len(stamps), MAMUTHKA_RESTART_MAX), flush=True)
+    # Galaxy A51: ha a GPU-s (libhybris) Cinnamon omlott össze, az újraindítás
+    # a munkamenet végéig szoftveres rajzolással (llvmpipe) megy (/usr/local/bin/cinnamon).
+    if os.environ.get("MAMUTHKA_GPU_TILTVA") != "1":
+        os.environ["MAMUTHKA_GPU_TILTVA"] = "1"
     time.sleep(1)
     return True
 ''')
