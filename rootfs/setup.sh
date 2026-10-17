@@ -46,7 +46,8 @@ locale-gen
 } > /etc/default/locale
 # A systemd-firstboot az /etc/locale.conf-ot keresi; nélküle első indításkor
 # interaktívan kérdezne a konzolon (billentyűzet nincs) → az indulás megáll.
-cp /etc/default/locale /etc/locale.conf
+# (Ubuntu 24.04-en az /etc/locale.conf symlink az /etc/default/locale-ra.)
+[ /etc/locale.conf -ef /etc/default/locale ] || cp /etc/default/locale /etc/locale.conf
 ln -sf "/usr/share/zoneinfo/$TIMEZONE" /etc/localtime
 echo "$TIMEZONE" > /etc/timezone
 cat > /etc/default/keyboard <<EOF

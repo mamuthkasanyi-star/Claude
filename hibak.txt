@@ -718,7 +718,7 @@ A 97BC0E1 ELSŐ RENDSZERINDÍTÁSA (2026-10-16/17): a rendszer fut, ssh megy
     - Becslés: CI-build + kicsomagolás 1–2 nap, első pbuffer-próba utána;
       Cinnamon-gyorsítás továbbra is bizonytalan (a muffin GLX-et vár).
 
-73. [SÚLYOS] Forgatás (687aaf2): élesben hibás. A RandR 1.1-es patch csak a
+73. [SÚLYOS] Forgatás (687aaf2): élesben hibás. (ALAPBÓL KI, élő próbára vár: docs/wip-forgatas-gpu.md) A RandR 1.1-es patch csak a
     képernyőméretet cserélte, CRTC/kimenet nem volt (xrandr: „default”, a
     méret-tartomány 1080×2400–1080×2400); a muffin RandR 1.2-t vár
     (RRSetScreenSize + CRTC), ezért a forgatás után inkonzisztens geometriát

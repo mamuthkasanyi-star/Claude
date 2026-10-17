@@ -26,7 +26,8 @@ a telefonon root-írás nélkül):
   (egy CRTC, „DSI-1” kimenet, képernyőméret 1080×1080 … 2400×2400). Élő
   próba nem-root teszt-X-szel a :5-ön (/dev/fb0 visszaolvasás): mind a négy
   irány, a muffin-féle sorrend (crtc ki → méret → crtc be) és a hibás méret
-  elutasítása rendben. A daemon `xrandr --output DSI-1 --rotate`.
+  elutasítása rendben. A daemon `xrandr --output DSI-1 --rotate`. **Alapból KI**
+  (RandRRotation "off", enabled=0), az élő próba lépései: `docs/wip-forgatas-gpu.md`.
 - **Crash → fekete (74.):** metacity a csomagokban + cinnamon-launcher
   auto-újraindítás (5 perc / 3 alkalom).
 - **Képernyővédő (75., 77.):** `--hold` D-Bus-szolgáltatás (nincs percenkénti
