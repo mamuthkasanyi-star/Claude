@@ -10,6 +10,12 @@ Használat: cs-stage-patch.py <eredeti stage.py> <kimenet>
    (floating-widgets=false) az óra vízszintesen középen, az alja a
    háttérkép mamutfeje (a képernyő ~27%-a) fölött – ébren és alvó
    állapotban is.
+3. Forgatás (álló <-> fekvő): a CScreensaver 6.0.3 CsScreen-je nem küld
+   size-changed/monitors-changed jelet (cs-screen-x11.c is_full_change():
+   inicializálatlan total_monitors, upstream javítás 338a858a), így a
+   zárképernyő-ablak a régi méretben marad és fekvőben csak részben takar.
+   A Gdk-képernyő jeleire (a CsScreen saját újratöltése után, idle-ben) a
+   stage maga kér teljes frissítést.
 """
 import sys
 
@@ -51,6 +57,45 @@ rep("""        if isinstance(child, ClockWidget) or isinstance(child, AlbumArt):
                 return True
 
         if isinstance(child, ClockWidget) or isinstance(child, AlbumArt):
+""")
+
+rep("""        trackers.con_tracker_get().connect(status.screen,
+                                           "composited-changed",
+                                           self.on_composited_changed)
+""", """        # Mamuthka: a CsScreen forgatáskor nem jelez (upstream 338a858a előtt),
+        # ezért a Gdk-képernyő jeleiből frissítünk.
+        self._mamuthka_gdk_screen = Gdk.Screen.get_default()
+        self._mamuthka_gdk_ids = [self._mamuthka_gdk_screen.connect(sig, self._mamuthka_gdk_screen_changed)
+                                  for sig in ("size-changed", "monitors-changed")]
+
+        trackers.con_tracker_get().connect(status.screen,
+                                           "composited-changed",
+                                           self.on_composited_changed)
+""")
+
+rep("""    def on_screen_size_changed(self, screen, data=None):
+""", """    def _mamuthka_gdk_screen_changed(self, screen, data=None):
+        # A mi kezelőnk a CsScreen-é előtt fut: a frissítés idle-ben, amikor a
+        # CsScreen már az új monitor-geometriát adja.
+        GLib.idle_add(self._mamuthka_refresh_idle)
+
+    def _mamuthka_refresh_idle(self):
+        if self._mamuthka_gdk_ids:
+            DEBUG("Stage: Gdk screen changed (rotation), refreshing stage")
+            self.emit("needs-refresh")
+        return False
+
+    def on_screen_size_changed(self, screen, data=None):
+""")
+
+rep("""        self.gdk_filter.stop()
+        self.gdk_filter = None
+""", """        self.gdk_filter.stop()
+        self.gdk_filter = None
+
+        for _id in self._mamuthka_gdk_ids:
+            self._mamuthka_gdk_screen.disconnect(_id)
+        self._mamuthka_gdk_ids = []
 """)
 
 compile(s, dst, "exec")

@@ -69,6 +69,13 @@ Tartalék: ha a GPU-s Cinnamon összeomlik, a cinnamon-launcher a munkamenet
 végéig llvmpipe-pal indítja újra (`MAMUTHKA_GPU_TILTVA=1`), és 90 s-on
 belüli újraindításkor az indító is llvmpipe-ra vált.
 
-**Nyitott (nem GPU-hiba):** a zárolt képernyő (cinnamon-screensaver) forgatáskor
-nem méreteződik át („Screen rect … and 1 monitor rects … DO NOT add up,
-skipping change notification”), így fekvőben csak egy része takar.
+**Zárképernyő forgatáskor (nem GPU-hiba, javítva):** a cinnamon-screensaver
+6.0.3 zárképernyője forgatáskor nem méreteződött át („Screen rect … and 1
+monitor rects … DO NOT add up, skipping change notification”), így fekvőben
+csak egy része takart. Ok: a `cs-screen-x11.c` `is_full_change()`-ében az
+inicializálatlan `total_monitors` (upstream javítás: 338a858a, „libscreensaver:
+fix detection of monitor hotplug”), ezért a CsScreen sosem küldi a
+size-changed/monitors-changed jelet, bár a geometriát frissíti. Kerülőút: a
+`cs-stage-patch.py` 3. pontja a Gdk-képernyő jeleire idle-ben `needs-refresh`-t
+kér (élőben ellenőrizve: a Gdk-jelek jönnek, idle-ben a CsScreen már az új
+540×1200 / 1200×540 geometriát adja).
