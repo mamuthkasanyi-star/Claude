@@ -1,0 +1,55 @@
+name: Mamuthka linux – libhybris (A51, kísérleti)
+
+# Kísérleti GPU-build: a Droidian libhybris (droidian ág) natív arm64-en,
+# Android 13 fejlécekkel (halium/android-headers, halium-13.0 ág), Ubuntu 24.04
+# ABI-val (a telefon rootfs-e is noble). Csak a külön claude/libhybris-a51
+# ágon, illetve kézzel fut, így a fő build-a51.yml-t nem zavarja.
+on:
+  workflow_dispatch:
+  push:
+    branches: [claude/libhybris-a51]
+    paths: ['.github/workflows/libhybris-a51.yml']
+
+permissions:
+  contents: read
+
+jobs:
+  libhybris:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 60
+    steps:
+      - name: Függőségek
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential autoconf automake libtool pkg-config git quilt \
+            libwayland-dev libwayland-egl-backend-dev wayland-protocols libx11-dev libx11-xcb-dev \
+            libxcb1-dev libxcb-dri3-dev libxcb-present-dev libxext-dev libglvnd-dev patchelf python3
+      - name: android-headers (halium-13.0)
+        run: |
+          git clone --depth 1 -b halium-13.0 https://github.com/halium/android-headers ah
+          git -C ah log -1 --format='android-headers %H %cd'
+          sudo make -C ah PREFIX=/usr install
+      - name: libhybris (droidian ág)
+        run: |
+          git clone --depth 1 -b droidian https://github.com/droidian/libhybris lh
+          git -C lh log -1 --format='libhybris %H %cd'
+          cd lh
+          QUILT_PATCHES=debian/patches quilt push -a
+          cd hybris
+          NOCONFIGURE=1 ./autogen.sh
+          ./configure --prefix=/usr --libdir=/usr/lib/aarch64-linux-gnu --sysconfdir=/etc \
+            --enable-wayland --with-android-headers=/usr/include/android \
+            --enable-property-cache --enable-experimental --enable-glvnd \
+            --enable-arch=arm64 --enable-mali-quirks \
+            --with-default-hybris-ld-library-path=/vendor/lib64:/vendor/lib64/hw:/vendor/lib64/egl:/system/lib64:/apex/com.android.runtime/lib64/bionic:/apex/com.android.runtime/lib64:/apex/com.android.vndk.v33/lib64
+          make -j"$(nproc)"
+          make DESTDIR="$GITHUB_WORKSPACE/out" install
+      - name: Csomag
+        run: |
+          cd out && tar -czf ../libhybris-a51-arm64.tar.gz . && cd ..
+          ls -la libhybris-a51-arm64.tar.gz
+          find out -name 'test_*' -o -name '*.so*' | head -80
+      - uses: actions/upload-artifact@v4
+        with:
+          name: libhybris-a51-arm64
+          path: libhybris-a51-arm64.tar.gz
