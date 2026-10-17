@@ -40,7 +40,7 @@ jobs:
           ./configure --prefix=/usr --libdir=/usr/lib/aarch64-linux-gnu --sysconfdir=/etc \
             --enable-wayland --with-android-headers=/usr/include/android \
             --enable-property-cache --enable-experimental --enable-glvnd \
-            --enable-arch=arm64 --enable-mali-quirks \
+            --enable-arch=arm64 --enable-mali-quirks --enable-debug --enable-trace \
             --with-default-hybris-ld-library-path=/vendor/lib64:/vendor/lib64/hw:/vendor/lib64/egl:/system/lib64:/apex/com.android.runtime/lib64/bionic:/apex/com.android.runtime/lib64:/apex/com.android.vndk.v33/lib64
           make -j"$(nproc)"
           make DESTDIR="$GITHUB_WORKSPACE/out" install
