@@ -1,0 +1,6 @@
+Dark Reader → Beállítások → Advanced → Dev tools → Dynamic Theme Editor → Per Site Editor → bejegyzés: *
+A "CSS" sor alá szúrd be:
+
+input, textarea, select, button, table, th, td, hr, blockquote, pre, fieldset, header, footer, nav { border-color: #ff1a1a !important; }
+a { color: #ff4d4d !important; }
+input, textarea { color: #f2f2f2 !important; caret-color: #ff1a1a !important; }

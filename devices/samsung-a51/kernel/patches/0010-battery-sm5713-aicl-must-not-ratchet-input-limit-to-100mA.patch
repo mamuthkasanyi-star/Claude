@@ -1,0 +1,101 @@
+From: Mamuthka linux
+Subject: [PATCH] battery_v2: sm5713: AICL must not ratchet the input limit to 100 mA
+
+On a laptop USB port (Rp = 1.5 A advertised, so sec_battery sets 1500 mA)
+the VBUS sags under the 4.5 V AICL threshold already at 200-300 mA.  The
+stock aicl_work then lowers the input limit in 100 mA steps; after the loop
+reaches MINIMUM_INPUT_CURRENT every further AICL interrupt still does one
+more step, so the limit ends at 100 mA ("aicl : 100mA", Imax(100mA)) and is
+never raised again until replug.  The phone discharges while plugged in.
+
+- aicl_floor_ma (default 500): the software AICL never goes below this; the
+  hardware AICL loop keeps regulating the real current against VBUS.
+- aicl_th (default 1 = 4.4 V, stock 4.5 V): applied at init and on every
+  cable change, so it can be tuned at runtime via
+  /sys/module/sm5713_charger/parameters/.
+
+---
+--- a/drivers/battery_v2/sm5713_charger.c
++++ b/drivers/battery_v2/sm5713_charger.c
+@@ -44,6 +44,43 @@
+ 
+ static void sm5713_charger_enable_aicl_irq(struct sm5713_charger_data *charger);
+ 
++/*
++ * Mamuthka linux: the stock code lowers the input-current limit in 100 mA
++ * steps whenever the AICL status bit is set, and never raises it again until
++ * the cable is replugged.  On a weak laptop port the VBUS dips below the
++ * 4.5 V threshold already at 200-300 mA, so the limit ratchets down to
++ * 100 mA and the phone discharges while "charging".  The hardware AICL loop
++ * (AICLEN_VBUS) keeps regulating the real input current against the VBUS
++ * threshold in any case, so the software setpoint does not need to go below
++ * a sane floor.
++ *
++ *   aicl_floor_ma : the software AICL never lowers the limit below this
++ *                   (mA, 0 = stock behaviour, clamped to >= 300).
++ *   aicl_th       : AICL VBUS threshold, 0=4.3 V 1=4.4 V 2=4.5 V (stock)
++ *                   3=4.6 V; applied at init and on every cable change.
++ *
++ * Both are writable at runtime in /sys/module/sm5713_charger/parameters/
++ * and settable on the command line (sm5713_charger.aicl_floor_ma=...).
++ */
++static int aicl_floor_ma = 500;
++module_param(aicl_floor_ma, int, 0644);
++MODULE_PARM_DESC(aicl_floor_ma, "software AICL floor in mA (0 = stock)");
++
++static int aicl_th = AICL_TH_V_4_4;
++module_param(aicl_th, int, 0644);
++MODULE_PARM_DESC(aicl_th, "AICL VBUS threshold: 0=4.3V 1=4.4V 2=4.5V 3=4.6V");
++
++static inline u8 mamuthka_aicl_th(void)
++{
++	return (aicl_th >= AICL_TH_V_4_3 && aicl_th <= AICL_TH_V_4_6) ?
++		(u8)aicl_th : AICL_TH_V_4_5;
++}
++
++static inline int mamuthka_aicl_floor(void)
++{
++	return aicl_floor_ma > MINIMUM_INPUT_CURRENT ? aicl_floor_ma : MINIMUM_INPUT_CURRENT;
++}
++
+ #if defined(ENABLE_SM5713_ENBYPASS_MODE)
+ static void chg_set_en_bypass(struct sm5713_charger_data *charger, bool enable)
+ {
+@@ -600,6 +637,9 @@
+ 	charger->slow_rate_chg_mode = false;
+ 	charger->cable_type = cable_type;
+ 
++	/* re-apply the (runtime tunable) AICL threshold on every cable change */
++	chg_set_aicl(charger, 1, mamuthka_aicl_th());
++
+ 	if (charger->cable_type == SEC_BATTERY_CABLE_NONE ||
+ 			charger->cable_type == SEC_BATTERY_CABLE_UNKNOWN) {
+ 		sm5713_charger_oper_push_event(SM5713_CHARGER_OP_EVENT_VBUSIN, 0);
+@@ -838,9 +878,17 @@
+ 	sm5713_read_reg(charger->i2c, SM5713_CHG_REG_STATUS2, &reg);
+ 	while ((reg & (0x1 << 0)) && charger->cable_type != SEC_BATTERY_CABLE_NONE) {
+ 		if (++aicl_cnt >= 2) {
++			/* never step below the floor (the stock code always did one
++			 * more step per interrupt, down to 100 mA) */
++			if (chg_get_input_current_limit(charger) - REDUCE_CURRENT_STEP <
++					mamuthka_aicl_floor()) {
++				dev_info(charger->dev, "aicl: input-limit %dmA at floor %dmA, keep\n",
++					chg_get_input_current_limit(charger), mamuthka_aicl_floor());
++				break;
++			}
+ 			input_limit = _reduce_input_limit_current(charger);
+ 			aicl_on = true;
+-			if (input_limit <= MINIMUM_INPUT_CURRENT) {
++			if (input_limit <= mamuthka_aicl_floor()) {
+ 				break;
+ 			}
+ 			aicl_cnt = 0;
+@@ -982,7 +1030,7 @@
+ 
+ static inline void sm5713_chg_init(struct sm5713_charger_data *charger)
+ {
+-    chg_set_aicl(charger, 1, AICL_TH_V_4_5);
++    chg_set_aicl(charger, 1, mamuthka_aicl_th());
+     chg_set_ocp_current(charger, charger->pdata->chg_ocp_current);
+     chg_set_batreg(charger, charger->pdata->chg_float_voltage);
+     chg_set_iq3limit(charger, BST_IQ3LIMIT_C_4_0);

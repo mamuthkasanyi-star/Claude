@@ -1,0 +1,13 @@
+#!/bin/sh
+# Rendszerszintű Mamuthka indító: a felhasználói indítót (~/.local/bin/mamuthka,
+# a telepítő hozza létre) hívja; ha az még nincs, előbb lefuttatja a beállítást.
+u="$HOME/.local/bin/mamuthka"
+if [ ! -x "$u" ]; then
+	/usr/libexec/mamuthka/bongeszo-setup || true
+fi
+if [ -x "$u" ]; then
+	exec "$u" "$@"
+fi
+# Végső tartalék: sima Firefox a Mamuthka ablakosztállyal.
+export MOZ_APP_REMOTINGNAME=Mamuthka MOZ_ENABLE_WAYLAND=0 MOZ_USE_XINPUT2=1
+exec firefox --class Mamuthka --name Mamuthka "$@"

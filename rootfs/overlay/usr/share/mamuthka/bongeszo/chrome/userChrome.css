@@ -1,0 +1,50 @@
+/* Mamuthka — fekete UI, élénk piros hangsúly */
+:root {
+  --mamuthka-bg: #000000;
+  --mamuthka-bg2: #0c0c0c;
+  --mamuthka-red: #ff1a1a;
+  --mamuthka-red-soft: #ff4d4d;
+  --mamuthka-text: #f2f2f2;
+  --toolbar-bgcolor: var(--mamuthka-bg) !important;
+  --toolbar-color: var(--mamuthka-text) !important;
+  --toolbar-field-background-color: var(--mamuthka-bg2) !important;
+  --toolbar-field-color: var(--mamuthka-text) !important;
+  --toolbar-field-focus-background-color: #141414 !important;
+  --toolbar-field-focus-border-color: var(--mamuthka-red) !important;
+  --lwt-accent-color: var(--mamuthka-bg) !important;
+  --lwt-text-color: var(--mamuthka-text) !important;
+  --tab-selected-bgcolor: #1a0000 !important;
+  --tab-selected-textcolor: var(--mamuthka-text) !important;
+  --tabs-border-color: var(--mamuthka-red) !important;
+  --urlbar-box-bgcolor: var(--mamuthka-bg2) !important;
+  --focus-outline-color: var(--mamuthka-red) !important;
+  --arrowpanel-background: var(--mamuthka-bg2) !important;
+  --arrowpanel-color: var(--mamuthka-text) !important;
+  --arrowpanel-border-color: var(--mamuthka-red) !important;
+  --sidebar-background-color: var(--mamuthka-bg) !important;
+  --sidebar-text-color: var(--mamuthka-text) !important;
+  --button-primary-bgcolor: var(--mamuthka-red) !important;
+  --button-primary-hover-bgcolor: var(--mamuthka-red-soft) !important;
+  --button-primary-active-bgcolor: #cc0000 !important;
+  --toolbarbutton-icon-fill-attention: var(--mamuthka-red) !important;
+  accent-color: var(--mamuthka-red);
+  color-scheme: dark;
+}
+#navigator-toolbox, #TabsToolbar, #nav-bar, #PersonalToolbar, #titlebar, #toolbar-menubar {
+  background: var(--mamuthka-bg) !important;
+  color: var(--mamuthka-text) !important;
+}
+#navigator-toolbox { border-bottom: 1px solid var(--mamuthka-red) !important; }
+.tabbrowser-tab[selected] .tab-background {
+  background: #1a0000 !important;
+  box-shadow: inset 0 -2px 0 var(--mamuthka-red) !important;
+}
+.tabbrowser-tab:not([selected]):hover .tab-background { background: #1a1a1a !important; }
+#urlbar-background, #searchbar { background: var(--mamuthka-bg2) !important; border-color: #3a0000 !important; }
+#urlbar[focused="true"] > #urlbar-background { border-color: var(--mamuthka-red) !important; box-shadow: 0 0 0 1px var(--mamuthka-red) !important; }
+#urlbar-input::selection, #searchbar input::selection { background: var(--mamuthka-red) !important; color: #000 !important; }
+toolbarbutton:hover > .toolbarbutton-icon, .toolbarbutton-1:hover { background-color: #2a0000 !important; }
+.urlbarView, menupopup, panel { --panel-background: var(--mamuthka-bg2) !important; }
+.urlbarView-row[selected] { background: #330000 !important; }
+.tab-loading-burst, .tab-throbber[progress] { --tab-loading-fill: var(--mamuthka-red) !important; }
+#PanelUI-button, #unified-extensions-button { fill: var(--mamuthka-red) !important; }

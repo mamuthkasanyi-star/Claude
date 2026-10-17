@@ -1,0 +1,6 @@
+// A51 (aarch64, Mamuthka linux/Ubuntu, Xorg fbdev + llvmpipe): amíg nincs GPU-gyorsítás, a szoftveres WebRender gyorsabb
+user_pref("gfx.webrender.software", true);
+user_pref("media.hardware-video-decoding.enabled", false);
+// Érintőképernyő: sima görgetés, nagyítás
+user_pref("apz.allow_zooming", true);
+user_pref("dom.w3c_touch_events.enabled", 1);

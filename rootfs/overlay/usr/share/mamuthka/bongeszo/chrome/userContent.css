@@ -1,0 +1,23 @@
+/* Mamuthka — belső oldalak (about:*, új lap): fekete + piros */
+@-moz-document url-prefix("about:"), url-prefix("chrome:") {
+  :root {
+    color-scheme: dark !important;
+    --in-content-page-background: #000000 !important;
+    --in-content-box-background: #0c0c0c !important;
+    --in-content-page-color: #f2f2f2 !important;
+    --in-content-primary-button-background: #ff1a1a !important;
+    --in-content-primary-button-background-hover: #ff4d4d !important;
+    --in-content-accent-color: #ff1a1a !important;
+    --in-content-border-color: #ff1a1a !important;
+    --in-content-link-color: #ff4d4d !important;
+    --in-content-link-color-hover: #ff8080 !important;
+    --newtab-background-color: #000000 !important;
+    --newtab-background-color-secondary: #0c0c0c !important;
+    --newtab-text-primary-color: #f2f2f2 !important;
+    --newtab-primary-action-background: #ff1a1a !important;
+    accent-color: #ff1a1a;
+  }
+  body { background: #000 !important; }
+  a { color: #ff4d4d !important; }
+  ::selection { background: #ff1a1a !important; color: #000 !important; }
+}

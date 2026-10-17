@@ -1,0 +1,15 @@
+! Mamuthka egyedi szűrők (generálva: 2026-10-10 18:57:59)
+! Title: Mamuthka
+||ad.adverticum.net^
+||adx.adform.net^
+||cdn.insurads.com^
+||gahu.hit.gemius.pl^
+||hu.hit.gemius.pl^
+||indexstat.index.hu^
+||ogads-pa.clients6.google.com^
+||pixel.adsafeprotected.com^
+||securepubads.g.doubleclick.net^
+||static.adsafeprotected.com^
+||static.ads-twitter.com^
+||www.googleadservices.com^
+||www.google-analytics.com^

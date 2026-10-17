@@ -551,3 +551,56 @@ A 97BC0E1 ELSŐ RENDSZERINDÍTÁSA (2026-10-16/17): a rendszer fut, ssh megy
     kijelző a DECON fbdev). A gyári A515FXXU7HWF1 libGLES_mali.so verziója
     PONTOSAN r38p1-01bet0 → a libhybris-út kernel-módosítás nélkül járható.
     Most beépítve: Cinnamon animációk/effektek ki (llvmpipe-terhelés kisebb).
+
+60. [SÚLYOS] Laptop-USB-n nem tölt, merül (Imax 100 mA, nettó −80…−800 mA).
+    Ok (dmesg-ből igazolva): NEM a gadget VBUS_DRAW. A CCIC 1,5 A-es Rp-t lát
+    (rp_currentlvl 2 → input 1500 mA, az USB_CONFIGURE ilyenkor figyelmen kívül
+    marad), de a laptopport/kábel VBUS-a már 200–300 mA-nél a 4,5 V-os AICL-
+    küszöb alá esik. Az SM5713 aicl_work 100 mA-es lépésekben csökkent, és a
+    MINIMUM_INPUT_CURRENT (300) elérése után minden újabb AICL-megszakítás még
+    egy lépést tesz → 100 mA, visszaemelés csak újradugáskor.
+    → JAVÍTVA (fordítva, telefonon még nem mérve):
+      - patches/0010: aicl_floor_ma (alap 500; a szoftveres AICL ez alá nem
+        megy, a HW AICL-hurok tovább véd) és aicl_th (alap 1 = 4,4 V; 0 = 4,3 V).
+        Futás közben: /sys/module/sm5713_charger/parameters/ (root), a küszöb
+        a következő kábeldugáskor érvényesül; cmdline-on
+        sm5713_charger.aicl_floor_ma=… is.
+      - CONFIG_USB_GADGET_VBUS_DRAW=500 (eddig 2 mA-t hirdetett a leíró).
+    NYITVA: a régi kernelen futásidejű sysfs-megoldás nincs (a batt TUNE-
+    attribútumok az USB-kábelt kihagyják). Ha 500 mA-nél is beesik a VBUS:
+    rövidebb/vastagabb kábel, másik (töltős/USB-C) port.
+
+61. [SÚLYOS] Fogyasztás: a cinnamon 400–510% CPU-t visz, kikapcsolt kijelzővel
+    is (−1000 mA, a másodperces óra kikapcsolva is ~482%). Mért részok: a
+    cinnamon-screensaver stage-ablaka 2160×4800 (stage.py update_geometry a
+    fizikai méretet még egyszer felszorozza a skálával), ezt a cinnamon
+    llvmpipe-pal rajzolja.
+    → JAVÍTVA (setup.sh): stage.py dpkg-divert + a két „*= scale” sor törlése;
+      floating-widgets=false; képernyőzár kikapcsolva (lock-enabled=false,
+      lockdown disable-lock-screen=true – a user kérése); startup-animation=
+      false; muffin unredirect-fullscreen-windows=true; kevesebb applet.
+    NYITVA: (a) a cs-backup-locker ablaka is 2160×4800 (C-kód, nem javítva;
+    egyszer rajzol, olcsó). (b) Még nincs kiderítve, mi animál folyamatosan
+    zár nélkül is; kell egy olyan megoldás, hogy DPMS off / blank alatt a
+    cinnamon (Clutter master clock) ne rajzoljon. Következő lépés: flash után
+    mérés zárképernyő nélkül; ha marad, a cinnamon „looking glass”/
+    `global.get_frame_timestamps`-szerű mérés, illetve Clutter-nyomkövetés
+    (CLUTTER_DEBUG=paint), és egy DPMS-figyelő, ami blank alatt leállítja a
+    rajzolást. (c) A dpkg-divert miatt csomagfrissítéskor a stage.py nem
+    frissül – ellenőrizni kell.
+
+62. [KISEBB] SSH-n „locale”-figyelmeztetés: a laptop SendEnv-vel küldi a de_AT
+    LC_* változóit, a telefonon csak C, C.utf8, hu_HU.utf8 van. Nem hiba a
+    telefonon; laptopon `SendEnv` kivétele vagy LC_ALL=hu_HU.UTF-8 megoldja.
+    NYITVA (nem javítva).
+
+63. [INFO] Mamuthka böngésző a rootfs-ben: /usr/share/mamuthka/bongeszo
+    (assetek, profiladat NINCS), /usr/lib/firefox/distribution/policies.json,
+    rendszerikonok, /usr/local/bin/mamuthka + mamuthka.desktop; a felhasználói
+    profilt első bejelentkezéskor az /usr/libexec/mamuthka/bongeszo-setup
+    hozza létre (idempotens, jelzőfájl: ~/.config/mamuthka/bongeszo.stamp).
+    Kedvencek és panel: Mamuthka a Firefox helyett. Panelóra: 24 órás,
+    másodpercekkel.
+    NYITVA (ebben a körben nem készült el): hang (calliope firmware az
+    initramfs-be), automatikus forgatás (SSP sensorhub poweron +
+    SensorProxy-daemon), GPU EGL-próba (libhybris).

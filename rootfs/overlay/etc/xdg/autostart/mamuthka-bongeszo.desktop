@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Mamuthka böngésző beállítása
+Comment=A Mamuthka profil, téma és indító létrehozása (egyszer, idempotens)
+Exec=/bin/sh -c 'sleep 20; exec /usr/libexec/mamuthka/bongeszo-setup'
+OnlyShowIn=X-Cinnamon;
+X-GNOME-Autostart-Phase=Applications
+NoDisplay=true

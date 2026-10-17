@@ -1,0 +1,28 @@
+{
+  "manifest_version": 2,
+  "name": "Mamuthka tema",
+  "version": "1.0",
+  "description": "Fekete felület, élénk piros hangsúly.",
+  "browser_specific_settings": { "gecko": { "id": "mamuthka-tema@mamuthka.local" } },
+  "icons": {"96": "icon.png"},
+  "theme": {
+    "colors": {
+      "frame": "#000000", "frame_inactive": "#000000",
+      "toolbar": "#000000", "toolbar_text": "#f2f2f2",
+      "tab_background_text": "#cccccc", "tab_text": "#ffffff",
+      "tab_selected": "#1a0000", "tab_line": "#ff1a1a",
+      "toolbar_field": "#0c0c0c", "toolbar_field_text": "#f2f2f2",
+      "toolbar_field_border": "#3a0000", "toolbar_field_focus": "#141414",
+      "toolbar_field_border_focus": "#ff1a1a",
+      "toolbar_field_highlight": "#ff1a1a", "toolbar_field_highlight_text": "#000000",
+      "popup": "#0c0c0c", "popup_text": "#f2f2f2", "popup_border": "#ff1a1a",
+      "popup_highlight": "#330000", "popup_highlight_text": "#ffffff",
+      "sidebar": "#000000", "sidebar_text": "#f2f2f2", "sidebar_border": "#ff1a1a",
+      "button_background_hover": "#2a0000", "button_background_active": "#550000",
+      "icons": "#ff1a1a", "icons_attention": "#ff4d4d",
+      "ntp_background": "#000000", "ntp_text": "#f2f2f2",
+      "bookmark_text": "#f2f2f2"
+    },
+    "properties": { "color_scheme": "dark", "content_color_scheme": "light" }
+  }
+}

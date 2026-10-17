@@ -67,6 +67,24 @@ else
 		echo "!! Flatpak Firefox telepítés sikertelen – első induláskor a Szoftverekből telepíthető"
 fi
 
+echo "== Mamuthka böngésző (Firefox-réteg)"
+# Az assetek: /usr/share/mamuthka/bongeszo (overlay). A rendszerszintű
+# policies.json nem csomagtulajdon, a Firefox-frissítés nem írja felül.
+# A felhasználói profilt első bejelentkezéskor a bongeszo-setup hozza létre
+# (/etc/xdg/autostart/mamuthka-bongeszo.desktop) – profiladat nincs a képben.
+B=/usr/share/mamuthka/bongeszo
+if [ -d /usr/lib/firefox ]; then
+	install -Dm644 "$B/policies.json" /usr/lib/firefox/distribution/policies.json
+fi
+for s in 16 32 48 64 96 128 256 512; do
+	install -Dm644 "$B/ikonok/mamuthka-$s.png" "/usr/share/icons/hicolor/${s}x${s}/apps/mamuthka.png"
+done
+install -Dm644 "$B/ikonok/mamuthka.svg" /usr/share/icons/hicolor/scalable/apps/mamuthka.svg
+gtk-update-icon-cache -f -t /usr/share/icons/hicolor >/dev/null 2>&1 || true
+# Panel ablaklistájának gyári rögzített indítói: Firefox helyett Mamuthka.
+GWL=/usr/share/cinnamon/applets/grouped-window-list@cinnamon.org/settings-schema.json
+[ -f "$GWL" ] && sed -i 's/"firefox\.desktop"/"mamuthka.desktop"/' "$GWL"
+
 echo "== Rendszernév és márka"
 echo "$HOSTNAME" > /etc/hostname
 cat > /etc/hosts <<EOF
@@ -109,6 +127,21 @@ echo "== Cinnamon alapbeállítások"
 sed -i -e "s/@UI_SCALE@/$UI_SCALE/" -e "s/@GTK_THEME@/$GTK_THEME/g" -e "s/@ICON_THEME@/$ICON_THEME/" \
 	/usr/share/glib-2.0/schemas/90_mamuthka.gschema.override
 glib-compile-schemas /usr/share/glib-2.0/schemas
+
+# cinnamon-screensaver 6.0: a Stage.update_geometry() a (már fizikai pixelben
+# kapott) képernyőméretet még egyszer felszorozza a skálával → 2×-es
+# (2160×4800) zárképernyő-ablak, amit a cinnamon llvmpipe-pal folyamatosan
+# rajzol: ~450% CPU, kikapcsolt kijelzőnél is (hibak.txt 61.). Elterelve
+# javítjuk; egy csomagfrissítés az eredetit a .distrib néven telepíti.
+SS=/usr/share/cinnamon-screensaver/stage.py
+if [ -f "$SS" ] && [ "$(grep -c 'self\.rect\.\(width\|height\) \*= scale' "$SS")" = 2 ]; then
+	dpkg-divert --local --rename --divert "$SS.distrib" --add "$SS" >/dev/null
+	sed -e '/self\.rect\.\(width\|height\) \*= scale/d' "$SS.distrib" > "$SS"
+	chmod 644 "$SS"
+	python3 -m py_compile "$SS" && rm -rf /usr/share/cinnamon-screensaver/__pycache__/stage.*
+else
+	echo "!! cinnamon-screensaver stage.py: a javítandó sorok nem találhatók (megváltozott a csomag?)"
+fi
 sed -i "s/@USERNAME@/$USERNAME/" /etc/lightdm/lightdm.conf.d/50-mamuthka.conf
 
 echo "== Boot-logó (Plymouth)"
@@ -127,13 +160,19 @@ systemctl set-default graphical.target
 # blueman-mechanism: a kernelben nincs RFKILL/Bluetooth (ImportError: RfKill).
 systemctl mask systemd-firstboot.service systemd-networkd-wait-online.service NetworkManager-wait-online.service \
 	snapd.service snapd.socket ModemManager.service blueman-mechanism.service >/dev/null 2>&1 || true
+# Firmware-frissítés (LVFS) Samsung telefonra nincs; a napi időzítő csak ébreszt.
+systemctl mask fwupd-refresh.timer >/dev/null 2>&1 || true
 # A hangot a PipeWire (pipewire-pulse) adja; a vele együtt települt PulseAudio
 # ugyanarra a socketre indulna (versengés, hibák a naplóban).
 systemctl --global mask pulseaudio.service pulseaudio.socket >/dev/null 2>&1 || true
 systemctl --global enable pipewire-pulse.socket >/dev/null 2>&1 || true
 # Automatikus indítás tiltása a munkamenetben (Cinnamon nem nézi a
 # X-GNOME-HiddenUnderSystemd kulcsot).
-for d in pulseaudio blueman; do
+# Telefonon fölösleges háttérfolyamatok: GNOME Szoftverek háttérszolgáltatás
+# (~150 MB RAM, frissítés-keresés), KDE-s xdg-user-dirs, Wacom/smartcard/
+# nyomtató-értesítő plugin (nincs ilyen hardver / CUPS).
+for d in pulseaudio blueman org.gnome.Software xdg-user-dirs-kde cinnamon-settings-daemon-wacom \
+	cinnamon-settings-daemon-smartcard cinnamon-settings-daemon-print-notifications; do
 	f=/etc/xdg/autostart/$d.desktop
 	[ -f "$f" ] && ! grep -q '^Hidden=true' "$f" && echo "Hidden=true" >> "$f"
 done
