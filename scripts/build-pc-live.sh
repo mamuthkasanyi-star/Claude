@@ -87,15 +87,13 @@ set timeout=10
 set timeout_style=menu
 # Ékezetek: Secure Boot alatt az aláírt GRUB (lockdown) nem tölt be
 # betűkészletet, a firmware szöveges konzolja pedig nem ismeri az ő/ű/–
-# jelet – ilyenkor ö/ü/- jelenik meg helyettük.
-set o="ő"; set u="ű"; set d="–"
+# jelet – ilyenkor ö/- jelenik meg helyettük (csak grafikus terminálon ő/–).
+set o="ö"; set d="-"
 if loadfont /boot/grub/fonts/unicode.pf2; then
 	set gfxmode=auto
 	insmod all_video
 	insmod gfxterm
-	terminal_output gfxterm
-else
-	set o="ö"; set u="ü"; set d="-"
+	if terminal_output gfxterm; then set o="ő"; set d="–"; fi
 fi
 set menu_color_normal=white/black
 set menu_color_highlight=black/light-gray
