@@ -1,9 +1,10 @@
 #!/bin/bash
 # Galaxy A51: futás közbeni képernyőforgatás (xrandr -o left/right/inverted).
-# A gyári xf86-video-fbdev 0.5.0 nem ad RandR-forgatást (a DriverFunc nem
-# kezeli az RR_GET_INFO/RR_SET_CONFIG-ot), ezért egy kis patch-csel újrafordítjuk:
-# a ShadowFB shadow-pixmapját átméretezi, és a shadow-réteg forgatott
-# frissítését (shadowUpdateRotatePacked) kapcsolja be. Csak akkor él, ha az
+# A gyári xf86-video-fbdev 0.5.0 nem ad RandR-forgatást, ezért egy patch-csel
+# újrafordítjuk: RandR 1.2 réteg (xf86CrtcConfigInit) egy virtuális CRTC-vel és
+# egy „DSI-1” kimenettel; a képernyőméret 1080×1080 … 2400×2400 között
+# állítható (a muffin RRSetScreenSize-a így működik), a forgatást a ShadowFB
+# shadow-rétege végzi (shadowUpdateRotatePacked). Csak akkor él, ha az
 # xorg.conf-ban Option "RandRRotation" "on" – különben a gyári viselkedés.
 # Ha a fordítás nem sikerül, a gyári driver marad (a forgatás nem lesz elérhető).
 set -euo pipefail

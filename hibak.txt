@@ -704,3 +704,101 @@ A 97BC0E1 ELSŐ RENDSZERINDÍTÁSA (2026-10-16/17): a rendszer fut, ssh megy
       hwservicemanager nélkül valószínűleg csak pbuffer-próbát enged.
     Következő mérföldkő: libhybris build (CI), majd user-ként test_egl
     (eglGetDisplay/eglInitialize, pbuffer).
+    Állapot 2026-10-17 délután (NEM KÉSZÜLT EL, pontos hiánylista):
+    - /dev/mali0 0666, /dev/ion root:video 0660 (a user a video-ban) – rendben.
+    - /dev/binder, /dev/hwbinder, /dev/vndbinder 0600 root, binderfs nincs; a
+      blob AHardwareBuffer_allocate-et importál (libnativewindow → gralloc4
+      allocator HIDL-szolgáltatás a hwservicemanager-en át) → ablakos/
+      pufferes rajzoláshoz Android-konténer (Halium-szerű) kell, pbuffer-
+      próbához talán nem.
+    - Hiányzik: libhybris arm64-re, Android 13 (API 33) bionic-linkerrel
+      (az upstream libhybris linkerei Android 11-ig; a Droidian-ág kell);
+      android-headers-33; a gyári A515FXXU7HWF1 system/vendor partícióiból
+      (super.img → lpunpack → ext4/erofs) a 14 NEEDED könyvtár + linker64.
+    - Becslés: CI-build + kicsomagolás 1–2 nap, első pbuffer-próba utána;
+      Cinnamon-gyorsítás továbbra is bizonytalan (a muffin GLX-et vár).
+
+73. [SÚLYOS] Forgatás (687aaf2): élesben hibás. A RandR 1.1-es patch csak a
+    képernyőméretet cserélte, CRTC/kimenet nem volt (xrandr: „default”, a
+    méret-tartomány 1080×2400–1080×2400); a muffin RandR 1.2-t vár
+    (RRSetScreenSize + CRTC), ezért a forgatás után inkonzisztens geometriát
+    látott.
+    → JAVÍTVA: az fbdev-patch most xf86Crtc-réteget ad (xf86CrtcConfigInit):
+      egy virtuális CRTC, egy „DSI-1” kimenet (1080×2400 60 Hz, valós
+      timinggel), képernyőméret 1080×1080 … 2400×2400, forgatás
+      normal/left/inverted/right (reflexió és transzformáció nélkül), a
+      ShadowFB shadow-rétege forgat. A muffin-féle sorrend (crtc ki →
+      ScreenSetSize → crtc be) és a RandR 1.1 (`xrandr -o`) is működik.
+      Élő próba (2026-10-17, nem-root teszt-X a :5-ön, /dev/fb0
+      visszaolvasással): mind a négy irány helyes, rossz méret
+      („--fb 1200x1200”) elutasítva összeomlás nélkül, --off/--auto rendben.
+      A mamuthka-forgatas daemon `xrandr --output DSI-1 --rotate …`-t használ
+      (tartalék: `xrandr -o`).
+
+74. [SÚLYOS] A cinnamon összeomlása után fekete képernyő. A cinnamon-launcher
+    jelre (SIGSEGV/SIGABRT) a „metacity --replace”-t indítaná tartaléknak,
+    de a metacity nincs telepítve (FileNotFoundError a ~/.xsession-errors-
+    ban), így ablakkezelő nélküli üres X marad a kérdőablakkal.
+    → JAVÍTVA: metacity a csomaglistában; a cinnamon-launcher (dpkg-divert +
+      cinnamon-launcher-patch.py) összeomlásnál magától újraindítja a
+      cinnamont, 5 percen belül legfeljebb 3-szor; utána jön a gyári
+      tartalék (metacity + kérdés). Kilépésnél (SIGTERM stb.) nem indít újra.
+
+75. [FOGYASZTÁS] A cinnamon-screensaver feloldott állapotban 30 s tétlenség
+    után kilép, és a következő D-Bus-hívás újraindítja (a cinnamon-session
+    naplója kb. percenként „screensaver has appeared/left the bus”) – minden
+    indítás teljes Python/GTK-betöltés. Nem összeomlás: a D-Bus-szolgáltatás
+    --hold nélkül indítja.
+    → JAVÍTVA: /usr/local/share/dbus-1/services/org.cinnamon.ScreenSaver.service
+      (Exec=… --hold), a /usr/share-belinél erősebb.
+
+76. [KISEBB] Xorg (EE): „libinput: grip_sensor: Failed to create a device”,
+    a grip_sensor_sub pedig virtuális egérként jelenik meg.
+    → JAVÍTVA: 10-a51-fbdev.conf: InputClass, MatchProduct "grip_", Ignore.
+
+77. [SÚLYOS] Fogyasztás: a képernyővédő alatt a cinnamon ~390% CPU-t visz
+    (8 llvmpipe-szál folyamatosan, kikapcsolt kijelzőnél is; mérve
+    2026-10-17, 60 s: a 8 magból átlag 52% foglalt). Ok: a cs-backup-locker
+    (a képernyővédő alatti tartalék zár-ablak) a méretét X-pixelben kapja, de
+    GDK-koordinátaként állítja be → 2-es skálánál 2160×4800-as átlátszó
+    ablak, amit a muffin másodpercenként többször újrakompozitál. Élő
+    próba: az ablakot 1080×2400-ra méretezve a cinnamon 387% → 4%.
+    (Valószínűleg a 71. pontbeli „másodperces löketek” is ebből jöttek.)
+    → JAVÍTVA: cs-manager-patch.py (dpkg-divert): a cs-backup-locker
+      GDK_SCALE=1 (és GDK_DPI_SCALE=2) környezettel indul.
+
+78. [FOGYASZTÁS] Kernel: kb. 65 s-onként teljes DPP-regiszter-hexdump a
+    naplóban. Ok: dpp_op_timer_handler – a DPP keretkész-IRQ fbdev alatt nem
+    mindig jön meg 1 s-on belül; a timer softirq-ból, console_trylock mellett
+    dumpol.
+    → JAVÍTVA: kernelpatch 0014: dump csak dpp_log_level >= 6 mellett
+      (a 0001 óta 0).
+
+79. [FOGYASZTÁS] Kernel-naplózaj a szenzorhubtól, amíg az accel aktív (a
+    forgatás miatt mindig): ~6 s-onként „debug_work_func: FW … Sensor state”
+    + szenzoronként egy sor, és ~4 s-onként az MCU saját „[M] AR…”
+    üzenete (activity-recognition-állapot). Funkciójuk nincs (Android-oldali
+    diagnosztika); a no-event-ellenőrzés és az újraindító logika marad.
+    → JAVÍTVA: kernelpatch 0015: az állapotsor és az [M]-üzenetek pr_debug
+      szintre (dynamic-debuggal visszakapcsolható), a szenzoronkénti sorok
+      csak MAMUTHKA_SSP_VERBOSE-szal fordulnak.
+    Megjegyzés: a ~33 s-onkénti „cmd 3 type 255 subcmd 4” marad (MCU-
+    parancsválasz, ritka).
+
+80. [KISEBB] Nyelv: az ssh-munkamenet a laptop LC_*-változóit (de_AT) vette
+    át (AcceptEnv LANG LC_*) – „Locale not supported by C library”, vegyes
+    nyelvű kimenet; az /etc/default/locale csak LANG-ot adott.
+    → JAVÍTVA: setup.sh: /etc/default/locale és /etc/locale.conf minden
+      LC_*-ra hu_HU.UTF-8, LANGUAGE=hu; az sshd_config AcceptEnv sora
+      kikommentezve (drop-innel nem írható felül). Ellenőrizve a telefonon:
+      a cinnamon, nemo, csd-*, képernyővédő magyarul fut („szombat október
+      17”), a fő csomagok magyar .mo-fájljai megvannak (cinnamon, nemo,
+      slick-greeter, muffin, onboard, gnome-terminal, nm-applet, firefox-
+      locale-hu). A saját szkriptek szövegei magyarok. A háttérkép angol
+      felirata a kép része (marad).
+
+81. [FEJLESZTÉS] llvmpipe-hangolás kapcsolóval: /etc/mamuthka/grafika.conf
+    (felhasználónként ~/.config/mamuthka/grafika.conf), az
+    /etc/X11/Xsession.d/58mamuthka-grafika veszi át. Alapból minden ki van
+    kommentezve (gyári Mesa-viselkedés, 8 szál). Pl. LP_NUM_THREADS=4 a
+    következő bejelentkezéstől. Mérés még nincs (a session újraindítása kell).

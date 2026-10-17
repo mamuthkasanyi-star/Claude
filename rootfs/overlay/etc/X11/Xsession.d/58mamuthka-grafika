@@ -1,0 +1,12 @@
+# Mamuthka linux: llvmpipe-hangolás a /etc/mamuthka/grafika.conf és a
+# ~/.config/mamuthka/grafika.conf alapján (alapból nincs változás).
+# Csak az ismert, ellenőrzött változókat vesszük át.
+for _mf in /etc/mamuthka/grafika.conf "$HOME/.config/mamuthka/grafika.conf"; do
+	[ -r "$_mf" ] || continue
+	_mv=$(sed -n 's/^[[:space:]]*LP_NUM_THREADS=\([0-9]\{1,2\}\)[[:space:]]*$/\1/p' "$_mf" | tail -n 1)
+	if [ -n "$_mv" ] && [ "$_mv" -ge 1 ] && [ "$_mv" -le 16 ]; then
+		LP_NUM_THREADS=$_mv
+		export LP_NUM_THREADS
+	fi
+done
+unset _mf _mv

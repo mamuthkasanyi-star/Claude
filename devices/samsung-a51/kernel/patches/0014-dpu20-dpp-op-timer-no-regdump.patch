@@ -1,0 +1,19 @@
+diff --git a/drivers/video/fbdev/exynos/dpu20/dpp_drv.c b/drivers/video/fbdev/exynos/dpu20/dpp_drv.c
+--- a/drivers/video/fbdev/exynos/dpu20/dpp_drv.c
++++ b/drivers/video/fbdev/exynos/dpu20/dpp_drv.c
+@@ -38,7 +38,14 @@ void dpp_op_timer_handler(unsigned long arg)
+ {
+ 	struct dpp_device *dpp = (struct dpp_device *)arg;
+ 
+-	dpp_dump(dpp);
++	/*
++	 * Mamuthka: a fbdev/X alatt a DPP keretkész-IRQ gyakran nem érkezik
++	 * meg 1 s-on belül (nincs folyamatos win_config), ilyenkor a timer
++	 * teljes regiszter-hexdumpot írt a kernelnaplóba (~65 s-onként),
++	 * softirq-ból, console_trylock mellett. Csak bőbeszédű naplószintnél.
++	 */
++	if (dpp_log_level >= 6)
++		dpp_dump(dpp);
+ 
+ 	//if (dpp->dpp_config->config.compression)
+ 	//	dpp_info("Compression Source is %s of DPP[%d]\n",

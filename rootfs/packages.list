@@ -17,6 +17,8 @@ mesa-utils libgl1-mesa-dri
 
 # Asztal: Cinnamon
 cinnamon-core cinnamon-l10n nemo gnome-terminal
+# metacity: a cinnamon-launcher tartalék ablakkezelője összeomlás után
+metacity
 lightdm slick-greeter
 yaru-theme-gtk yaru-theme-icon
 onboard zenity

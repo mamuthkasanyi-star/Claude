@@ -17,6 +17,34 @@ még nem jött fel (javítás: lásd lent, 2026-10-17).
 - Ág: `claude/remote-control-wo3lxh` (a teljes projekt itt; a `main` üres)
 - Release (flashelhető fájlok): https://github.com/mamuthkasanyi-star/Claude/releases/tag/a51-teszt
 
+## Új kör (2026-10-17 délután, a 8f04dd3 után) – hibak.txt 73–81
+
+A 687aaf2-es forgatás élesben hibás volt (73.). Ebben a körben (flash nélkül,
+a telefonon root-írás nélkül):
+
+- **Forgatás (73.):** az fbdev-patch RandR 1.2-es xf86Crtc-réteget kapott
+  (egy CRTC, „DSI-1” kimenet, képernyőméret 1080×1080 … 2400×2400). Élő
+  próba nem-root teszt-X-szel a :5-ön (/dev/fb0 visszaolvasás): mind a négy
+  irány, a muffin-féle sorrend (crtc ki → méret → crtc be) és a hibás méret
+  elutasítása rendben. A daemon `xrandr --output DSI-1 --rotate`.
+- **Crash → fekete (74.):** metacity a csomagokban + cinnamon-launcher
+  auto-újraindítás (5 perc / 3 alkalom).
+- **Képernyővédő (75., 77.):** `--hold` D-Bus-szolgáltatás (nincs percenkénti
+  kilépés); a cs-backup-locker 2160×4800-as ablaka miatti ~390% CPU →
+  GDK_SCALE=1 (élőben mérve: 387% → 4%).
+- **Kernel-napló (78., 79.):** 0014 (DPP op-timer hexdump ki), 0015 (SSP
+  állapotsor és „[M]” → pr_debug).
+- **Egyéb:** grip_sensor ignore (76.), magyar locale mindenhol + sshd
+  AcceptEnv ki (80.), kapcsolható llvmpipe-hangolás `/etc/mamuthka/grafika.conf`
+  (81., alapból ki).
+- **GPU:** pontos hiánylista a 72. pontban (libhybris A13-linkerrel, a gyári
+  system-könyvtárak, binder/allocator HAL).
+
+Flash után ellenőrizendő: `xrandr -q` (DSI-1, „normal left inverted right”),
+forgatás a telefon elfordításával, képernyővédő alatt `top` (cinnamon < 10%),
+`dmesg | grep -c dpp_dump`, `dmesg | grep -c "\[M\]"`, `locale` ssh-n,
+`busctl --user status org.cinnamon.ScreenSaver` (percek múlva ugyanaz a PID).
+
 ## Új kör (2026-10-17 délelőtt, a 76e2d56 után) – hibak.txt 66–72
 
 A 76e2d56 fut (boot 9 s, 0 failed, oops nincs). Ebben a körben (flash nélkül,
@@ -106,6 +134,14 @@ kbase-ével, tehát a gyári blob kernel-módosítás nélkül beszélhet a GPU-
 módosítása nélkül). Ha az megy, döntés: Wayland-héj (gyors siker) vagy
 Cinnamon-gyorsítás (hosszabb, bizonytalan). Nagy kernelmunka egyik úthoz sem
 kell az A) esetén.
+
+**Állapot 2026-10-17 délután:** az EGL-próba nem készült el; a pontos
+hiánylista a hibak.txt 72. pontjában (libhybris Android 13-as bionic-
+linkerrel, a gyári system/vendor könyvtárai, binder-jogok, gralloc-allocator
+HAL). A blob NEEDED-listája: libnativewindow, libutils, libgralloctypes,
+liblog, libion_exynos, libbase, libz, libcutils, libhidlbase, libhardware,
+libc++, libc, libm, libdl. Kapcsolható llvmpipe-hangolás:
+`/etc/mamuthka/grafika.conf` (`LP_NUM_THREADS`, alapból ki).
 
 **Most beépítve (gyors és biztonságos):** Cinnamon animációk és ablakeffektek
 ki (`90_mamuthka.gschema.override`) – az llvmpipe-kompozitor kevesebb CPU-t visz.

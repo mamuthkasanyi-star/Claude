@@ -1,0 +1,8 @@
+# Mamuthka linux: a gyári (/usr/share/dbus-1/services) változat --hold nélkül
+# indul, ezért a cinnamon-screensaver feloldott állapotban 30 s tétlenség után
+# kilép, és a következő D-Bus hívás (kb. percenként) újra elindítja – minden
+# indítás egy teljes Python/GTK-betöltés (hibak.txt 75.). A /usr/local/share
+# az XDG_DATA_DIRS-ben a /usr/share előtt van, így ez a fájl az erősebb.
+[D-BUS Service]
+Name=org.cinnamon.ScreenSaver
+Exec=/usr/bin/cinnamon-screensaver --hold

@@ -33,10 +33,20 @@ echo "== Nyelv, időzóna, billentyűzet"
 sed -i "s/^# *\($LOCALE\)/\1/" /etc/locale.gen
 grep -q "^$LOCALE" /etc/locale.gen || echo "$LOCALE UTF-8" >> /etc/locale.gen
 locale-gen
-echo "LANG=$LOCALE" > /etc/default/locale
+# Minden kategória (LC_*) és a LANGUAGE is a beállított nyelv: így a PAM-mal
+# (ssh, konzol), a systemd-vel (szolgáltatások, a felhasználói D-Bus által
+# indított programok, pl. képernyővédő) és a munkamenettel indított programok
+# is ugyanazt a nyelvet, dátum- és számformátumot kapják.
+{
+	echo "LANG=$LOCALE"
+	echo "LANGUAGE=${LOCALE%%_*}"
+	for c in CTYPE NUMERIC TIME COLLATE MONETARY MESSAGES PAPER NAME ADDRESS TELEPHONE MEASUREMENT IDENTIFICATION; do
+		echo "LC_$c=$LOCALE"
+	done
+} > /etc/default/locale
 # A systemd-firstboot az /etc/locale.conf-ot keresi; nélküle első indításkor
 # interaktívan kérdezne a konzolon (billentyűzet nincs) → az indulás megáll.
-echo "LANG=$LOCALE" > /etc/locale.conf
+cp /etc/default/locale /etc/locale.conf
 ln -sf "/usr/share/zoneinfo/$TIMEZONE" /etc/localtime
 echo "$TIMEZONE" > /etc/timezone
 cat > /etc/default/keyboard <<EOF
@@ -54,6 +64,14 @@ add-apt-repository -y -n ppa:mozillateam/ppa
 echo "== Csomagok telepítése"
 # shellcheck disable=SC2046
 "${APT[@]}" install $(grep -v '^\s*#' /etc/mamuthka/packages.list | xargs) $DEVICE_PACKAGES
+
+# ssh: a kliens gép nyelvi változóit (AcceptEnv LANG LC_*) ne vegye át – a
+# laptop pl. de_AT-t küld, amihez itt nincs locale („Locale not supported”),
+# és vegyes nyelvű kimenetet ad. Drop-in nem tudja felülírni (az AcceptEnv
+# halmozódik), ezért a fő konfigurációban kommentezzük ki.
+if [ -f /etc/ssh/sshd_config ]; then
+	sed -i 's/^\(AcceptEnv LANG LC_\*\)/# Mamuthka: kikapcsolva (a telefon saját nyelve érvényes)\n#\1/' /etc/ssh/sshd_config
+fi
 
 echo "== Flathub"
 flatpak remote-add --system --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo || true
@@ -155,6 +173,33 @@ if [ -f "$SS" ]; then
 	else
 		echo "!! cinnamon-screensaver stage.py nem javítható (megváltozott a csomag?) – az eredeti marad"
 		dpkg-divert --local --rename --remove "$SS" >/dev/null
+	fi
+fi
+# cinnamon-screensaver 6.0 manager.py: a cs-backup-locker 2-es skálánál
+# 2160×4800-as átlátszó ablakot nyit, amit a muffin llvmpipe-pal folyamatosan
+# újrakompozitál (~390% CPU a képernyővédő alatt, hibak.txt 77.).
+SM=/usr/share/cinnamon-screensaver/manager.py
+if [ -f "$SM" ]; then
+	dpkg-divert --local --rename --divert "$SM.distrib" --add "$SM" >/dev/null
+	if python3 /usr/share/mamuthka/cs-manager-patch.py "$SM.distrib" "$SM"; then
+		chmod 644 "$SM"
+		rm -rf /usr/share/cinnamon-screensaver/__pycache__/manager.*
+	else
+		echo "!! cinnamon-screensaver manager.py nem javítható (megváltozott a csomag?) – az eredeti marad"
+		dpkg-divert --local --rename --remove "$SM" >/dev/null
+	fi
+fi
+# cinnamon-launcher (Cinnamon 6.0): összeomlás után magától újraindítja a
+# cinnamont (5 percen belül legfeljebb 3-szor), a metacity-tartalék és a
+# „Cinnamon just crashed” kérdés csak ezután jön (hibak.txt 74.).
+CL=/usr/bin/cinnamon-launcher
+if [ -f "$CL" ]; then
+	dpkg-divert --local --rename --divert "$CL.distrib" --add "$CL" >/dev/null
+	if python3 /usr/share/mamuthka/cinnamon-launcher-patch.py "$CL.distrib" "$CL"; then
+		chmod 755 "$CL"
+	else
+		echo "!! cinnamon-launcher nem javítható (megváltozott a csomag?) – az eredeti marad"
+		dpkg-divert --local --rename --remove "$CL" >/dev/null
 	fi
 fi
 sed -i "s/@USERNAME@/$USERNAME/" /etc/lightdm/lightdm.conf.d/50-mamuthka.conf

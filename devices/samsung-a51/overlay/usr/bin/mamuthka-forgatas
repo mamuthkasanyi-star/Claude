@@ -4,8 +4,9 @@
 # A gyorsulásmérőt az SSP szenzorhub adja (mamuthka-sensorhub.service):
 #   /sys/class/sensors/accelerometer_sensor/raw_data  -> "x,y,z"
 #   /sys/class/sensors/ssp_sensor/enable              -> "11" be, "10" ki (accel = 1-es típus)
-# A forgatás: xrandr -o normal|left|right|inverted (a Mamuthka fbdev-patch
-# adja, RandR 1.1), az érintés: libinput „Coordinate Transformation Matrix”.
+# A forgatás: xrandr --output DSI-1 --rotate normal|left|right|inverted (a
+# Mamuthka fbdev-patch adja: RandR 1.2 crtc/output, a forgatást a shadow-réteg
+# végzi), az érintés: libinput „Coordinate Transformation Matrix”.
 # Kikapcsolt kijelzőnél a gyorsulásmérőt kikapcsolja.
 # Ha egy forgatás közben az X leállt (driverhiba), a következő indításkor
 # magától kikapcsol (~/.config/mamuthka-forgatas.off), hogy ne legyen hurok.
@@ -103,19 +104,24 @@ def screen_on():
     return _xset_on
 
 
-def current_rotation():
+def xrandr_state():
+    """(kimenet neve, jelenlegi forgatás) az első csatlakoztatott kimenetre."""
     try:
         out = subprocess.run(["xrandr", "-q"], capture_output=True, text=True, timeout=5).stdout
     except (OSError, subprocess.SubprocessError):
-        return "normal"
+        return None, "normal"
     for line in out.splitlines():
         if " connected" in line:
             w = line.split("(")[0].split()
             for r in ("left", "right", "inverted"):
                 if r in w:
-                    return r
-            return "normal"
-    return "normal"
+                    return w[0], r
+            return w[0], "normal"
+    return None, "normal"
+
+
+def current_rotation():
+    return xrandr_state()[1]
 
 
 def supported():
@@ -153,7 +159,12 @@ def set_wallpaper(rot):
 def apply(rot, c):
     os.makedirs(os.path.dirname(PENDING), exist_ok=True)
     write(PENDING, rot)
-    r = subprocess.run(["xrandr", "-o", rot], capture_output=True, text=True, timeout=10)
+    out = xrandr_state()[0]
+    if out:
+        cmd = ["xrandr", "--output", out, "--rotate", rot]
+    else:
+        cmd = ["xrandr", "-o", rot]
+    r = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
     ok = r.returncode == 0
     if ok:
         subprocess.run(["xinput", "set-prop", "pointer:" + c["touch"],
@@ -161,7 +172,7 @@ def apply(rot, c):
                        capture_output=True, timeout=10)
         set_wallpaper(rot)
     else:
-        log("xrandr -o %s: %s" % (rot, r.stderr.strip()))
+        log("%s: %s" % (" ".join(cmd), r.stderr.strip()))
     try:
         os.unlink(PENDING)
     except OSError:

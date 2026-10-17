@@ -1,6 +1,29 @@
 --- a/src/fbdev.c
 +++ b/src/fbdev.c
-@@ -125,7 +125,8 @@
+@@ -30,6 +30,12 @@
+ 
+ #include "fbdevhw.h"
+ 
++/* Mamuthka: RandR 1.2 crtc/output layer for runtime rotation */
++#include "xf86Crtc.h"
++#include "xf86RandR12.h"
++#include "damage.h"
++#include <pixman.h>
++
+ #include "xf86xv.h"
+ 
+ #include "compat-api.h"
+@@ -73,6 +79,9 @@
+ static Bool	FBDevDGAInit(ScrnInfoPtr pScrn, ScreenPtr pScreen);
+ static Bool	FBDevDriverFunc(ScrnInfoPtr pScrn, xorgDriverFuncOp op,
+ 				pointer ptr);
++static Bool	FBDevCrtcPreInit(ScrnInfoPtr pScrn);
++static void	fbdevUpdatePacked(ScreenPtr pScreen, shadowBufPtr pBuf);
++static void	fbdevUpdateRotatePacked(ScreenPtr pScreen, shadowBufPtr pBuf);
+ 
+ 
+ enum { FBDEV_ROTATE_NONE=0, FBDEV_ROTATE_CW=270, FBDEV_ROTATE_UD=180, FBDEV_ROTATE_CCW=90 };
+@@ -125,7 +134,8 @@
  	OPTION_SHADOW_FB,
  	OPTION_ROTATE,
  	OPTION_FBDEV,
@@ -10,7 +33,7 @@
  } FBDevOpts;
  
  static const OptionInfoRec FBDevOptions[] = {
-@@ -133,6 +134,7 @@
+@@ -133,6 +143,7 @@
  	{ OPTION_ROTATE,	"Rotate",	OPTV_STRING,	{0},	FALSE },
  	{ OPTION_FBDEV,		"fbdev",	OPTV_STRING,	{0},	FALSE },
  	{ OPTION_DEBUG,		"debug",	OPTV_BOOLEAN,	{0},	FALSE },
@@ -18,111 +41,535 @@
  	{ -1,			NULL,		OPTV_NONE,	{0},	FALSE }
  };
  
-@@ -195,6 +197,10 @@
+@@ -195,6 +206,14 @@
  	DGAModePtr			pDGAMode;
  	int				nDGAMode;
  	OptionInfoPtr			Options;
-+	/* Mamuthka: RandR rotation at runtime via the shadow layer */
-+	Bool				rrRotation;
-+	int				hwWidth;
++	/* Mamuthka: RandR 1.2 rotation through the shadow layer */
++	Bool				rrRotation;	/* crtc/output layer active */
++	int				hwWidth;	/* panel mode (unrotated) */
 +	int				hwHeight;
++	DisplayModePtr			hwMode;		/* private copy of the fbdev mode */
++	Rotation			rrRot;		/* current shadow rotation */
++	Bool				resourcesReady;	/* screen pixmap exists */
++	Bool				shadowActive;	/* shadowAdd() in effect */
  } FBDevRec, *FBDevPtr;
  
  #define FBDEVPTR(p) ((FBDevPtr)((p)->driverPrivate))
-@@ -588,6 +594,16 @@
+@@ -235,6 +254,11 @@
+ static Bool
+ fbdevSwitchMode(ScrnInfoPtr pScrn, DisplayModePtr mode)
+ {
++    FBDevPtr fPtr = FBDEVPTR(pScrn);
++
++    /* only one panel mode; the crtc layer owns mode handling */
++    if (fPtr && fPtr->rrRotation)
++	return TRUE;
+     return fbdevHWSwitchMode(pScrn, mode);
+ }
+ 
+@@ -247,6 +271,15 @@
+ static Bool
+ fbdevEnterVT(ScrnInfoPtr pScrn)
+ {
++    FBDevPtr fPtr = FBDEVPTR(pScrn);
++
++    if (fPtr && fPtr->rrRotation) {
++	/* restore the untouched fbdev mode, not the RandR copy */
++	if (!fbdevHWModeInit(pScrn, fPtr->hwMode))
++	    return FALSE;
++	fbdevHWAdjustFrame(pScrn, 0, 0);
++	return TRUE;
++    }
+     return fbdevHWEnterVT(pScrn);
+ }
+ 
+@@ -588,6 +621,15 @@
  	  }
  	}
  
-+	/* Mamuthka: runtime RandR rotation (xrandr -o left/right/inverted) */
++	/* Mamuthka: runtime rotation via RandR 1.2 (xrandr --output X --rotate) */
 +	fPtr->rrRotation = xf86ReturnOptValBool(fPtr->Options, OPTION_RANDR_ROTATION, FALSE);
++	fPtr->rrRot = RR_Rotate_0;
 +	if (fPtr->rrRotation && (fPtr->rotate || fPtr->shadow24 || !fPtr->shadowFB)) {
 +	    xf86DrvMsg(pScrn->scrnIndex, X_WARNING,
 +		       "RandRRotation needs ShadowFB without static Rotate, disabled\n");
 +	    fPtr->rrRotation = FALSE;
-+	} else if (fPtr->rrRotation) {
-+	    xf86DrvMsg(pScrn->scrnIndex, X_CONFIG, "RandR rotation enabled\n");
 +	}
 +
  	/* select video modes */
  
  	xf86DrvMsg(pScrn->scrnIndex, X_INFO, "checking modes against framebuffer device...\n");
-@@ -850,6 +866,8 @@
- 	}
+@@ -612,6 +654,12 @@
+ 	/* First approximation, may be refined in ScreenInit */
+ 	pScrn->displayWidth = pScrn->virtualX;
  
- 	fPtr->fbstart = fPtr->fbmem + fPtr->fboff;
-+	fPtr->hwWidth = pScrn->virtualX;
-+	fPtr->hwHeight = pScrn->virtualY;
++	if (fPtr->rrRotation && !FBDevCrtcPreInit(pScrn)) {
++	    xf86DrvMsg(pScrn->scrnIndex, X_WARNING,
++		       "RandR 1.2 setup failed, falling back to static mode\n");
++	    fPtr->rrRotation = FALSE;
++	}
++
+ 	xf86PrintModes(pScrn);
  
- 	if (fPtr->shadowFB) {
- 	    fPtr->shadow = calloc(1, pScrn->displayWidth * pScrn->virtualY *
-@@ -1262,15 +1280,70 @@
+ 	/* Set display resolution */
+@@ -697,6 +745,377 @@
+     shadowUpdatePacked(pScreen, pBuf);
  }
  
- static Bool
-+FBDevRandRSetConfig(ScrnInfoPtr pScrn, xorgRRConfig *config)
++/***********************************************************************
++ * Mamuthka: RandR 1.2 crtc/output layer.
++ *
++ * One fake crtc and one output ("DSI-1") describe the fixed panel mode.
++ * The screen may be resized between the panel size and its transpose;
++ * rotation is implemented by the shadow layer (shadowUpdateRotatePacked),
++ * so the hardware mode is never changed.  Only plain rotations and
++ * identity transforms are accepted.
++ ***********************************************************************/
++
++static Bool
++fbdevRotIsSideways(Rotation rot)
++{
++    return (rot & (RR_Rotate_90 | RR_Rotate_270)) != 0;
++}
++
++static const char *
++fbdevRotName(Rotation rot)
++{
++    switch (rot & 0xf) {
++    case RR_Rotate_90:	return "left";
++    case RR_Rotate_180:	return "inverted";
++    case RR_Rotate_270:	return "right";
++    default:		return "normal";
++    }
++}
++
++/* (Re)attach the shadow update for rotation rot and repaint everything. */
++static Bool
++fbdevShadowSetRotation(ScrnInfoPtr pScrn, Rotation rot)
 +{
 +    FBDevPtr fPtr = FBDEVPTR(pScrn);
-+    ScreenPtr pScreen = xf86ScrnToScreen(pScrn);
-+    PixmapPtr pPixmap;
-+    int rot = config->rotation & (RR_Rotate_0 | RR_Rotate_90 |
-+                                  RR_Rotate_180 | RR_Rotate_270);
-+    int w = fPtr->hwWidth, h = fPtr->hwHeight;
-+    int cpp = (pScrn->bitsPerPixel + 7) / 8;
++    ScreenPtr pScreen = pScrn->pScreen;
++    PixmapPtr pPix;
++    RegionRec reg;
++    BoxRec box;
 +
-+    if (!pScreen || !fPtr->shadow)
-+        return FALSE;
-+    switch (rot) {
-+    case RR_Rotate_0:
-+    case RR_Rotate_180:
-+        break;
-+    case RR_Rotate_90:
-+    case RR_Rotate_270:
-+        w = fPtr->hwHeight;
-+        h = fPtr->hwWidth;
-+        break;
-+    default:
-+        return FALSE;
++    fPtr->rrRot = rot;
++
++    /* before CreateScreenResources: FBDevCreateScreenResources uses rrRot */
++    if (!fPtr->resourcesReady || !pScreen)
++	return TRUE;
++
++    pPix = pScreen->GetScreenPixmap(pScreen);
++    if (!pPix)
++	return FALSE;
++
++    if (fPtr->shadowActive) {
++	shadowRemove(pScreen, pPix);
++	fPtr->shadowActive = FALSE;
 +    }
-+    pPixmap = pScreen->GetScreenPixmap(pScreen);
-+    if (!pPixmap)
-+        return FALSE;
-+    /* Same shadow buffer (w*h is unchanged), new geometry. */
-+    if (!pScreen->ModifyPixmapHeader(pPixmap, w, h, -1, -1, w * cpp, NULL))
-+        return FALSE;
-+    pScrn->displayWidth = w;
-+    shadowRemove(pScreen, pPixmap);
-+    if (!shadowAdd(pScreen, pPixmap,
-+                   rot == RR_Rotate_0 ? fbdevUpdatePacked : fbdevUpdateRotatePacked,
-+                   FBDevWindowLinear, rot == RR_Rotate_0 ? 0 : rot, NULL))
-+        return FALSE;
-+    xf86DrvMsg(pScrn->scrnIndex, X_INFO, "RandR rotation 0x%x (%dx%d)\n",
-+               rot, w, h);
++    if (!shadowAdd(pScreen, pPix,
++		   rot == RR_Rotate_0 ? fbdevUpdatePacked : fbdevUpdateRotatePacked,
++		   FBDevWindowLinear, (int) rot, NULL))
++	return FALSE;
++    fPtr->shadowActive = TRUE;
++
++    box.x1 = 0;
++    box.y1 = 0;
++    box.x2 = pPix->drawable.width;
++    box.y2 = pPix->drawable.height;
++    RegionInit(&reg, &box, 1);
++    DamageDamageRegion(&pPix->drawable, &reg);
++    RegionUninit(&reg);
 +    return TRUE;
 +}
 +
 +static Bool
- FBDevDriverFunc(ScrnInfoPtr pScrn, xorgDriverFuncOp op, pointer ptr)
++fbdevCrtcResize(ScrnInfoPtr pScrn, int width, int height)
++{
++    FBDevPtr fPtr = FBDEVPTR(pScrn);
++    ScreenPtr pScreen = pScrn->pScreen;
++    PixmapPtr pPix;
++    int cpp = (pScrn->bitsPerPixel + 7) / 8;
++    int rw, rh;
++
++    if (width == pScrn->virtualX && height == pScrn->virtualY)
++	return TRUE;
++
++    /* the shadow buffer holds exactly one panel worth of pixels */
++    if ((long) width * height > (long) fPtr->hwWidth * fPtr->hwHeight) {
++	xf86DrvMsg(pScrn->scrnIndex, X_WARNING,
++		   "RandR: screen %dx%d larger than the %dx%d shadow, refused\n",
++		   width, height, fPtr->hwWidth, fPtr->hwHeight);
++	return FALSE;
++    }
++
++    if (!pScreen || !fPtr->resourcesReady)
++	return FALSE;
++    pPix = pScreen->GetScreenPixmap(pScreen);
++    if (!pPix)
++	return FALSE;
++
++    /* stop scanning out while the size does not match the rotation */
++    rw = fbdevRotIsSideways(fPtr->rrRot) ? fPtr->hwHeight : fPtr->hwWidth;
++    rh = fbdevRotIsSideways(fPtr->rrRot) ? fPtr->hwWidth : fPtr->hwHeight;
++    if ((width != rw || height != rh) && fPtr->shadowActive) {
++	shadowRemove(pScreen, pPix);
++	fPtr->shadowActive = FALSE;
++    }
++
++    if (!pScreen->ModifyPixmapHeader(pPix, width, height, -1, -1,
++				     width * cpp, NULL))
++	return FALSE;
++
++    pScrn->virtualX = width;
++    pScrn->virtualY = height;
++    pScrn->displayWidth = width;
++
++    /* size matches the rotation again (e.g. a failed change was reverted) */
++    if (width == rw && height == rh && !fPtr->shadowActive)
++	fbdevShadowSetRotation(pScrn, fPtr->rrRot);
++
++    xf86DrvMsg(pScrn->scrnIndex, X_INFO, "RandR: screen size %dx%d\n",
++	       width, height);
++    return TRUE;
++}
++
++static const xf86CrtcConfigFuncsRec fbdevCrtcConfigFuncs = {
++    .resize = fbdevCrtcResize,
++};
++
++static void
++fbdevCrtcDpms(xf86CrtcPtr crtc, int mode)
++{
++    /* blanking is done by xf86DPMSInit(fbdevDPMSSet) */
++}
++
++static Bool
++fbdevCrtcLock(xf86CrtcPtr crtc)
++{
++    return FALSE;
++}
++
++static void
++fbdevCrtcNoop(xf86CrtcPtr crtc)
++{
++}
++
++static Bool
++fbdevCrtcModeFixup(xf86CrtcPtr crtc, DisplayModePtr mode,
++		   DisplayModePtr adjusted_mode)
++{
++    return TRUE;
++}
++
++static void
++fbdevCrtcModeSet(xf86CrtcPtr crtc, DisplayModePtr mode,
++		 DisplayModePtr adjusted_mode, int x, int y)
++{
++}
++
++static void
++fbdevCrtcGammaSet(xf86CrtcPtr crtc, CARD16 *red, CARD16 *green,
++		  CARD16 *blue, int size)
++{
++}
++
++static Bool
++fbdevCrtcSetModeMajor(xf86CrtcPtr crtc, DisplayModePtr mode,
++		      Rotation rotation, int x, int y)
++{
++    ScrnInfoPtr pScrn = crtc->scrn;
++    FBDevPtr fPtr = FBDEVPTR(pScrn);
++    Rotation rot = rotation & 0xf;
++    Rotation old = fPtr->rrRot;
++    int w, h;
++
++    if (rotation & ~0xf) {
++	xf86DrvMsg(pScrn->scrnIndex, X_WARNING, "RandR: reflection not supported\n");
++	return FALSE;
++    }
++    if (rot != RR_Rotate_0 && rot != RR_Rotate_90 &&
++	rot != RR_Rotate_180 && rot != RR_Rotate_270)
++	return FALSE;
++    if (mode->HDisplay != fPtr->hwWidth || mode->VDisplay != fPtr->hwHeight ||
++	x != 0 || y != 0) {
++	xf86DrvMsg(pScrn->scrnIndex, X_WARNING,
++		   "RandR: only %dx%d+0+0 is possible (asked %dx%d+%d+%d)\n",
++		   fPtr->hwWidth, fPtr->hwHeight,
++		   mode->HDisplay, mode->VDisplay, x, y);
++	return FALSE;
++    }
++    if (crtc->transformPresent &&
++	!pixman_transform_is_identity(&crtc->transform.transform)) {
++	xf86DrvMsg(pScrn->scrnIndex, X_WARNING,
++		   "RandR: only identity transforms are supported\n");
++	return FALSE;
++    }
++
++    w = fbdevRotIsSideways(rot) ? fPtr->hwHeight : fPtr->hwWidth;
++    h = fbdevRotIsSideways(rot) ? fPtr->hwWidth : fPtr->hwHeight;
++    if (pScrn->virtualX != w || pScrn->virtualY != h) {
++	xf86DrvMsg(pScrn->scrnIndex, X_WARNING,
++		   "RandR: screen %dx%d does not match rotated mode %dx%d\n",
++		   pScrn->virtualX, pScrn->virtualY, w, h);
++	return FALSE;
++    }
++
++    if (!fbdevShadowSetRotation(pScrn, rot)) {
++	xf86DrvMsg(pScrn->scrnIndex, X_ERROR, "RandR: shadow setup failed\n");
++	return FALSE;
++    }
++    if (rot != old)
++	xf86DrvMsg(pScrn->scrnIndex, X_INFO, "RandR: rotation %s\n",
++		   fbdevRotName(rot));
++    return TRUE;
++}
++
++static const xf86CrtcFuncsRec fbdevCrtcFuncs = {
++    .dpms = fbdevCrtcDpms,
++    .save = fbdevCrtcNoop,
++    .restore = fbdevCrtcNoop,
++    .lock = fbdevCrtcLock,
++    .unlock = fbdevCrtcNoop,
++    .mode_fixup = fbdevCrtcModeFixup,
++    .prepare = fbdevCrtcNoop,
++    .mode_set = fbdevCrtcModeSet,
++    .commit = fbdevCrtcNoop,
++    .gamma_set = fbdevCrtcGammaSet,
++    .destroy = fbdevCrtcNoop,
++    .set_mode_major = fbdevCrtcSetModeMajor,
++};
++
++static void
++fbdevOutputDpms(xf86OutputPtr output, int mode)
++{
++}
++
++static void
++fbdevOutputNoop(xf86OutputPtr output)
++{
++}
++
++static int
++fbdevOutputModeValid(xf86OutputPtr output, DisplayModePtr mode)
++{
++    return MODE_OK;
++}
++
++static Bool
++fbdevOutputModeFixup(xf86OutputPtr output, DisplayModePtr mode,
++		     DisplayModePtr adjusted_mode)
++{
++    return TRUE;
++}
++
++static void
++fbdevOutputModeSet(xf86OutputPtr output, DisplayModePtr mode,
++		   DisplayModePtr adjusted_mode)
++{
++}
++
++static xf86OutputStatus
++fbdevOutputDetect(xf86OutputPtr output)
++{
++    return XF86OutputStatusConnected;
++}
++
++static DisplayModePtr
++fbdevOutputGetModes(xf86OutputPtr output)
++{
++    FBDevPtr fPtr = FBDEVPTR(output->scrn);
++    DisplayModePtr mode;
++
++    if (!fPtr->hwMode)
++	return NULL;
++    mode = xf86DuplicateMode(fPtr->hwMode);
++    if (!mode)
++	return NULL;
++    /* fbdev drivers often report pixclock 0: claim 60 Hz for clients */
++    if (mode->Clock <= 0 && mode->HTotal > 0 && mode->VTotal > 0)
++	mode->Clock = (int) ((long) mode->HTotal * mode->VTotal * 60 / 1000);
++    mode->type = M_T_DRIVER | M_T_PREFERRED;
++    mode->status = MODE_OK;
++    mode->next = mode->prev = NULL;
++    xf86SetModeDefaultName(mode);
++    mode->VRefresh = xf86ModeVRefresh(mode);
++    return mode;
++}
++
++static Bool
++fbdevOutputSetProperty(xf86OutputPtr output, Atom property,
++		       RRPropertyValuePtr value)
++{
++    return TRUE;
++}
++
++static Bool
++fbdevOutputGetProperty(xf86OutputPtr output, Atom property)
++{
++    return TRUE;
++}
++
++static const xf86OutputFuncsRec fbdevOutputFuncs = {
++    .dpms = fbdevOutputDpms,
++    .save = fbdevOutputNoop,
++    .restore = fbdevOutputNoop,
++    .mode_valid = fbdevOutputModeValid,
++    .mode_fixup = fbdevOutputModeFixup,
++    .prepare = fbdevOutputNoop,
++    .commit = fbdevOutputNoop,
++    .mode_set = fbdevOutputModeSet,
++    .detect = fbdevOutputDetect,
++    .get_modes = fbdevOutputGetModes,
++    .set_property = fbdevOutputSetProperty,
++    .get_property = fbdevOutputGetProperty,
++    .destroy = fbdevOutputNoop,
++};
++
++static Bool
++FBDevCrtcPreInit(ScrnInfoPtr pScrn)
++{
++    FBDevPtr fPtr = FBDEVPTR(pScrn);
++    DisplayModePtr savedModes = pScrn->modes;
++    DisplayModePtr savedCurrent = pScrn->currentMode;
++    xf86CrtcPtr crtc;
++    xf86OutputPtr output;
++    int mn, mx;
++
++    if (!pScrn->currentMode)
++	return FALSE;
++
++    fPtr->hwMode = xf86DuplicateMode(pScrn->currentMode);
++    if (!fPtr->hwMode)
++	return FALSE;
++    fPtr->hwMode->next = fPtr->hwMode->prev = NULL;
++    fPtr->hwWidth = fPtr->hwMode->HDisplay;
++    fPtr->hwHeight = fPtr->hwMode->VDisplay;
++    mn = fPtr->hwWidth < fPtr->hwHeight ? fPtr->hwWidth : fPtr->hwHeight;
++    mx = fPtr->hwWidth > fPtr->hwHeight ? fPtr->hwWidth : fPtr->hwHeight;
++
++    xf86CrtcConfigInit(pScrn, &fbdevCrtcConfigFuncs);
++    xf86CrtcSetSizeRange(pScrn, mn, mn, mx, mx);
++
++    crtc = xf86CrtcCreate(pScrn, &fbdevCrtcFuncs);
++    if (!crtc)
++	return FALSE;
++    output = xf86OutputCreate(pScrn, &fbdevOutputFuncs, "DSI-1");
++    if (!output)
++	return FALSE;
++    output->possible_crtcs = 1;
++    output->possible_clones = 0;
++    output->interlaceAllowed = FALSE;
++    output->doubleScanAllowed = FALSE;
++    output->subpixel_order = SubPixelUnknown;
++    /* physical size unknown (as before): keeps desktop scaling unchanged */
++    output->mm_width = 0;
++    output->mm_height = 0;
++
++    /*
++     * xf86InitialConfiguration() replaces (and frees) pScrn->modes; the
++     * fbdevhw built-in mode is embedded in its private record, so detach
++     * it first.  The hardware keeps using fPtr->hwMode.
++     */
++    pScrn->modes = NULL;
++    pScrn->currentMode = NULL;
++    if (!xf86InitialConfiguration(pScrn, TRUE)) {
++	xf86DrvMsg(pScrn->scrnIndex, X_ERROR, "RandR: initial configuration failed\n");
++	pScrn->modes = savedModes;
++	pScrn->currentMode = savedCurrent;
++	return FALSE;
++    }
++    pScrn->displayWidth = pScrn->virtualX;
++
++    xf86DrvMsg(pScrn->scrnIndex, X_INFO,
++	       "RandR 1.2: output DSI-1 %dx%d, screen %dx%d..%dx%d, rotation via shadow\n",
++	       fPtr->hwWidth, fPtr->hwHeight, mn, mn, mx, mx);
++    return TRUE;
++}
++
+ static Bool
+ FBDevCreateScreenResources(ScreenPtr pScreen)
  {
-     xorgHWFlags *flag;
-+    FBDevPtr fPtr;
-     
-     switch (op) {
- 	case GET_REQUIRED_HW_INTERFACES:
- 	    flag = (CARD32*)ptr;
- 	    (*flag) = 0;
- 	    return TRUE;
-+	case RR_GET_INFO:
-+	    fPtr = FBDEVPTR(pScrn);
-+	    if (!fPtr || !fPtr->rrRotation)
-+		return FALSE;
-+	    ((xorgRRRotation *)ptr)->RRRotations =
-+		RR_Rotate_0 | RR_Rotate_90 | RR_Rotate_180 | RR_Rotate_270;
-+	    return TRUE;
-+	case RR_SET_CONFIG:
-+	    fPtr = FBDEVPTR(pScrn);
-+	    if (!fPtr || !fPtr->rrRotation)
-+		return FALSE;
-+	    return FBDevRandRSetConfig(pScrn, &((xorgRRRotation *)ptr)->RRConfig);
- 	default:
- 	    return FALSE;
+@@ -719,13 +1138,18 @@
+         update = fbdevUpdate32to24;
+     else if (fPtr->rotate)
+         update = fbdevUpdateRotatePacked;
++    else if (fPtr->rrRotation && fPtr->rrRot != RR_Rotate_0)
++        update = fbdevUpdateRotatePacked;
+     else
+         update = fbdevUpdatePacked;
+ 
+-    if (!shadowAdd(pScreen, pPixmap, update, FBDevWindowLinear, fPtr->rotate,
++    if (!shadowAdd(pScreen, pPixmap, update, FBDevWindowLinear,
++                   fPtr->rrRotation ? (int) fPtr->rrRot : fPtr->rotate,
+                    NULL)) {
+ 	return FALSE;
      }
++    fPtr->shadowActive = TRUE;
++    fPtr->resourcesReady = TRUE;
+ 
+     return TRUE;
+ }
+@@ -795,7 +1219,8 @@
+ 
+ 	fbdevHWSave(pScrn);
+ 
+-	if (!fbdevHWModeInit(pScrn, pScrn->currentMode)) {
++	if (!fbdevHWModeInit(pScrn, fPtr->rrRotation ? fPtr->hwMode
++					    : pScrn->currentMode)) {
+ 		xf86DrvMsg(pScrn->scrnIndex,X_ERROR,"mode initialization failed\n");
+ 		return FALSE;
+ 	}
+@@ -945,7 +1370,9 @@
+ 	    return FALSE;
+ 	}
+ 
+-	if (!fPtr->rotate)
++	if (fPtr->rrRotation)
++	  ; /* xf86CrtcScreenInit() sets up DGA */
++	else if (!fPtr->rotate)
+ 	  FBDevDGAInit(pScrn, pScreen);
+ 	else {
+ 	  xf86DrvMsg(pScrn->scrnIndex, X_INFO, "display rotated; disabling DGA\n");
+@@ -965,6 +1392,19 @@
+ 	/* software cursor */
+ 	miDCInitialize(pScreen, xf86GetPointerScreenFuncs());
+ 
++	if (fPtr->rrRotation) {
++	    if (!xf86CrtcScreenInit(pScreen)) {
++		xf86DrvMsg(pScrn->scrnIndex, X_ERROR,
++			   "RandR 1.2 screen init failed\n");
++		return FALSE;
++	    }
++	    /* rotation is done by the shadow layer, not by crtc shadows */
++	    xf86RandR12SetRotations(pScreen, RR_Rotate_0 | RR_Rotate_90 |
++				    RR_Rotate_180 | RR_Rotate_270);
++	    /* identity transforms only (keeps muffin from warning) */
++	    xf86RandR12SetTransformSupport(pScreen, TRUE);
++	}
++
+ 	/* colormap */
+ 	switch ((type = fbdevHWGetType(pScrn)))
+ 	{
+@@ -1021,6 +1461,11 @@
+ 	}
+ #endif
+ 
++	if (fPtr->rrRotation && !xf86SetDesiredModes(pScrn)) {
++	    xf86DrvMsg(pScrn->scrnIndex, X_ERROR, "setting initial mode failed\n");
++	    return FALSE;
++	}
++
+ 	TRACE_EXIT("FBDevScreenInit");
+ 
+ 	return TRUE;
+@@ -1039,6 +1484,8 @@
+ 	    free(fPtr->shadow);
+ 	    fPtr->shadow = NULL;
+ 	}
++	fPtr->shadowActive = FALSE;
++	fPtr->resourcesReady = FALSE;
+ 	if (fPtr->pDGAMode) {
+ 	  free(fPtr->pDGAMode);
+ 	  fPtr->pDGAMode = NULL;

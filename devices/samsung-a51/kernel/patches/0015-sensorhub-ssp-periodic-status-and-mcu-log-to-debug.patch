@@ -1,0 +1,46 @@
+diff --git a/drivers/sensorhub/ssp_debug.c b/drivers/sensorhub/ssp_debug.c
+--- a/drivers/sensorhub/ssp_debug.c
++++ b/drivers/sensorhub/ssp_debug.c
+@@ -131,7 +131,7 @@ static void check_no_event(struct ssp_data *data)
+ 	}
+ }
+ 
+-static void print_sensordata(struct ssp_data *data, unsigned int sensor_type)
++static void __maybe_unused print_sensordata(struct ssp_data *data, unsigned int sensor_type)
+ {
+ 	if(sensor_type < SENSOR_TYPE_MAX)
+ 	{
+@@ -267,17 +267,22 @@ static void debug_work_func(struct work_struct *work)
+ 	if (!atomic64_read(&data->sensor_en_state))
+ 		return;
+ 
+-	ssp_infof("FW(%d):%u, Sensor state: 0x%llx, En: 0x%llx, Reset cnt: %d[%d : C %u(%u, %u), N %u, %u]",
++	/* Mamuthka: az ~6 s-os állapotsor csak dynamic-debuggal (pr_debug). */
++	ssp_dbgf("FW(%d):%u, Sensor state: 0x%llx, En: 0x%llx, Reset cnt: %d[%d : C %u(%u, %u), N %u, %u]",
+ 		  data->fw_type, data->curr_fw_rev,
+ 		  data->sensor_probe_state, data->sensor_en_state,
+ 		  data->cnt_reset, data->cnt_ssp_reset[RESET_TYPE_MAX],
+ 		  data->cnt_ssp_reset[RESET_TYPE_KERNEL_COM_FAIL], data->cnt_com_fail, data->cnt_timeout,
+ 		  data->cnt_ssp_reset[RESET_TYPE_KERNEL_NO_EVENT], data->cnt_ssp_reset[RESET_TYPE_HUB_NO_EVENT]);
+ 
++#ifdef MAMUTHKA_SSP_VERBOSE
+ 	for (type = 0; type < SS_SENSOR_TYPE_MAX; type++)
+ 		if(data->en_info[type].enabled) {
+ 			print_sensordata(data, type);
+ 		}
++#else
++	(void)type;
++#endif
+ 
+ 	if(is_sensorhub_working(data))
+ 		check_no_event(data);
+@@ -333,7 +338,8 @@ int print_mcu_debug(char *dataframe, int *index, int dataframe_length)
+ 		return length ? length : -1;
+ 	}
+ 
+-	ssp_info("[M] %s", &dataframe[*index]);
++	/* Mamuthka: az MCU saját (~4 s-os) üzenetei csak dynamic-debuggal. */
++	ssp_dbg("[M] %s", &dataframe[*index]);
+ 	*index += length;
+ 	return 0;
+ }
