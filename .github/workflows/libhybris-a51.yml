@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
   push:
     branches: [claude/libhybris-a51]
-    paths: ['.github/workflows/libhybris-a51.yml']
+    paths: ['.github/workflows/libhybris-a51.yml', 'devices/samsung-a51/gpu/**']
 
 permissions:
   contents: read
@@ -18,6 +18,7 @@ jobs:
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 60
     steps:
+      - uses: actions/checkout@v4
       - name: Függőségek
         run: |
           sudo apt-get update
@@ -33,6 +34,9 @@ jobs:
         run: |
           git clone --depth 1 -b droidian https://github.com/droidian/libhybris lh
           git -C lh log -1 --format='libhybris %H %cd'
+          for p in "$GITHUB_WORKSPACE"/devices/samsung-a51/gpu/libhybris-patches/*.patch; do
+            echo "patch: $p"; git -C lh apply "$p"
+          done
           cd lh
           # A debian/patches tartalma (env_hybris_ld_shim_libs) a droidian ágban már benne van.
           cd hybris
@@ -48,8 +52,12 @@ jobs:
         run: |
           cd out && tar -czf ../libhybris-a51-arm64.tar.gz . && cd ..
           ls -la libhybris-a51-arm64.tar.gz
+          # A konfigurált build-fa is (a telefonon gyors újrafordításhoz: make -C hybris/common).
+          tar -czf libhybris-a51-buildfa.tar.gz lh ah
           find out -name 'test_*' -o -name '*.so*' | head -80
       - uses: actions/upload-artifact@v4
         with:
           name: libhybris-a51-arm64
-          path: libhybris-a51-arm64.tar.gz
+          path: |
+            libhybris-a51-arm64.tar.gz
+            libhybris-a51-buildfa.tar.gz

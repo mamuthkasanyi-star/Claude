@@ -1,0 +1,16 @@
+diff --git a/hybris/common/hooks.c b/hybris/common/hooks.c
+index 98dabb2..e136ccf 100644
+--- a/hybris/common/hooks.c
++++ b/hybris/common/hooks.c
+@@ -2922,6 +2922,11 @@ static struct _hook hooks_common[] = {
+     HOOK_DIRECT(fread),
+     HOOK_DIRECT_NO_DEBUG(getxattr),
+     HOOK_DIRECT(mprotect),
++    /* A bionic __ctype_get_mb_cur_max a TPIDR_EL0[-1] (TLS_SLOT_BIONIC_TLS)
++     * slotot olvassa, ami glibc alatt nem létezik (szegfault a libc++
++     * statikus inicializálásában, MB_CUR_MAX). A glibc-s változat ugyanígy
++     * hívható. */
++    HOOK_DIRECT_NO_DEBUG(__ctype_get_mb_cur_max),
+     /* string.h */
+     HOOK_DIRECT_NO_DEBUG(memccpy),
+     HOOK_DIRECT_NO_DEBUG(memchr),
