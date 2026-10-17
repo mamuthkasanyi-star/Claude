@@ -1,0 +1,13 @@
+[Unit]
+Description=Mamuthka linux: hangszóró-útvonal (ABOX → TAS2562) beállítása
+Documentation=file:///usr/bin/mamuthka-hang
+After=sound.target alsa-restore.service
+Wants=sound.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/bin/mamuthka-hang beallit
+
+[Install]
+WantedBy=multi-user.target

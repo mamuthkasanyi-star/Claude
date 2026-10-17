@@ -802,3 +802,48 @@ A 97BC0E1 ELSŐ RENDSZERINDÍTÁSA (2026-10-16/17): a rendszer fut, ssh megy
     /etc/X11/Xsession.d/58mamuthka-grafika veszi át. Alapból minden ki van
     kommentezve (gyári Mesa-viselkedés, 8 szál). Pl. LP_NUM_THREADS=4 a
     következő bejelentkezéstől. Mérés még nincs (a session újraindítása kell).
+
+82. [SÚLYOS] Forgatás élő próbája (a cc83eb6-on, 2026-10-17 14:23, a user
+    engedélyével): RandRRotation "on" + enabled=1, lightdm újraindítás.
+    Eredmény: az X és a Cinnamon elindult, a daemon a bejelentkezés után
+    magától fekvőbe („right”) forgatott, a fekvő háttérképpel. Kézzel
+    végigpróbálva (xrandr --output DSI-1 --rotate): normal/left/inverted/
+    right – a /dev/fb0 képe mind a négy irányban helyes, a cinnamon nem
+    omlott össze, (EE) nincs az Xorg-naplóban.
+    → ALAPBÓL BEKAPCSOLVA a repóban (10-a51-fbdev.conf "on",
+      forgatas.conf enabled=1). Visszaállítás: "off"/enabled=0, vagy
+      /usr/lib/xorg/modules/drivers/fbdev_drv.so.distrib (gyári driver;
+      mentés a laptopon: ~/a51-mentes-20261016/forgatas-20261017/).
+    Nyitott: a forgatás IRÁNYA (left↔right) és az érintés illeszkedése
+    csak a telefon kézbe vételével ellenőrizhető (user-visszajelzés);
+    rossz irány esetén /etc/mamuthka/forgatas.conf: invert_x=1.
+
+83. [FOGYASZTÁS] Kernel: 10 s-onként „sec_bat_get_battery_info: Fail to set
+    psy ((null))”. Ok: a battery_v2 sec_bat_get_battery_info() minden
+    mérési ciklusban feltétel nélkül beírja a töltöttséget a vezeték
+    nélküli töltő power_supply-jába – az A51-nek nincs ilyen
+    (wireless_charger_name = NULL). Mellette a sm5713 fuel gauge
+    ciklusonként ~20 pr_info-sort írt (journal → lemezírás 10 s-onként).
+    → JAVÍTVA: kernelpatch 0016 (a hívás csak létező vezeték nélküli
+      töltőnél), 0017 (sm5713_fuelgauge pr_info → pr_debug, a
+      hőmérséklet-ADC és a „cable type” sor dev_dbg/pr_debug).
+    Ellenőrizve: a Cinnamon akku-ikonja és az UPower helyes (100%,
+    fully-charged, USB online), /sys/class/power_supply/battery rendben.
+
+84. [SÚLYOS] Hangszóró: néma volt. A gyári mixer_paths_ti.xml szerint a
+    hangszóró a TI TAS2562 erősítő az UAIF2-n; Androidon a DSP
+    hangszóróvédelme (ERAP/DSM, RDMA7 → SIFS1) táplálja, ez Linuxon
+    nincs. Linux-útvonal: RDMA0/1 → SPUS OUT0/1 → SIFS0 → UAIF2 → TAS2562
+    (UAIF2 16 bit/2 csatorna/48 kHz). Élőben: aplay (RDMA1) és
+    speaker-test (RDMA0) hibátlan; a user hallotta a hangot a telefonon.
+    A PipeWire viszont ~165 ms-onként újraindította a lejátszást („RDMA
+    disable timeout”, szaggatás): az ABOX DMA-pointere durva lépésű, a
+    tsched ezt elakadásnak veszi.
+    → JAVÍTVA: /usr/bin/mamuthka-hang (beallit|teszt) +
+      mamuthka-hang.service (rendszerindításkor), WirePlumber-szabály
+      52-mamuthka-abox.lua (disable-tsched, period 1024×4, S16LE 48 kHz) –
+      ezzel 1 indítás, folyamatos lejátszás. Teszt: `mamuthka-hang teszt`.
+    Nyitott: UCM (fülhallgató RT5665/UAIF0, fülhangszóró, mikrofonok),
+    hangerő/torzítás user-visszajelzés, TAS2562 kalibráció
+    (/efs/tas25xx/calib_re hiányzik – gyári Re nélkül a hangszóróvédelem
+    nem aktív, ezért a hangerőt ne tekerjük maximumra).

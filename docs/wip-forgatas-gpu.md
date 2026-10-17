@@ -1,6 +1,8 @@
 # WIP: forgatás és GPU (2026-10-17 délután)
 
-Mindkettő félkész, élesben NINCS bekapcsolva.
+**Frissítés 14:30:** a forgatás élő próbája sikeres (hibak.txt 82.), a
+repóban alapból BE. Nyitott: irány és érintés user-ellenőrzése. A GPU
+lentebb.
 
 ## Forgatás (hibak.txt 73.)
 

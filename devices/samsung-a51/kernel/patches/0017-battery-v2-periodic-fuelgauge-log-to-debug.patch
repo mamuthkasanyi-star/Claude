@@ -1,0 +1,41 @@
+diff --git a/drivers/battery_v2/sec_adc.c b/drivers/battery_v2/sec_adc.c
+--- a/drivers/battery_v2/sec_adc.c
++++ b/drivers/battery_v2/sec_adc.c
+@@ -348,7 +348,7 @@ temp_by_adc_goto:
+ 	else
+ 		value->intval = temp;
+ 
+-	dev_info(battery->dev,
++	dev_dbg(battery->dev,	/* Mamuthka: ~10 s-onként, csak diagnosztika */
+ 		"%s:[%d] Temp(%d), Temp-ADC(%d)\n",
+ 		__func__,channel, temp, temp_adc);
+ 
+diff --git a/drivers/battery_v2/sec_battery.c b/drivers/battery_v2/sec_battery.c
+--- a/drivers/battery_v2/sec_battery.c
++++ b/drivers/battery_v2/sec_battery.c
+@@ -6011,7 +6011,7 @@ static int sec_bat_get_property(struct power_supply *psy,
+ 			val->intval = SEC_BATTERY_CABLE_WIRELESS;
+ 		else
+ 			val->intval = battery->cable_type;
+-		pr_info("%s cable type = %d sleep_mode = %d\n", __func__, val->intval, sleep_mode);
++		pr_debug("%s cable type = %d sleep_mode = %d\n", __func__, val->intval, sleep_mode);
+ 		break;
+ 	case POWER_SUPPLY_PROP_TECHNOLOGY:
+ 		val->intval = battery->pdata->technology;
+diff --git a/drivers/battery_v2/sm5713_fuelgauge.c b/drivers/battery_v2/sm5713_fuelgauge.c
+--- a/drivers/battery_v2/sm5713_fuelgauge.c
++++ b/drivers/battery_v2/sm5713_fuelgauge.c
+@@ -22,6 +22,13 @@
+ #include <linux/debugfs.h>
+ #include <linux/seq_file.h>
+ 
++/* Mamuthka: a fuel gauge minden mérési ciklusban (~10 s) kb. 20 sort írt
++ * pr_info-val a kernelnaplóba (és így a journalba, lemezre). Ezek
++ * diagnosztikai sorok: pr_debug szintre kerülnek (dynamic debuggal
++ * visszakapcsolhatók). A hibák (pr_err) maradnak. */
++#undef pr_info
++#define pr_info(fmt, ...) pr_debug(fmt, ##__VA_ARGS__)
++
+ 
+ static enum power_supply_property sm5713_fuelgauge_props[] = {
+ };

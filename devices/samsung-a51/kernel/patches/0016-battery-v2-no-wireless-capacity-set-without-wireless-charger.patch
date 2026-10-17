@@ -1,0 +1,23 @@
+diff --git a/drivers/battery_v2/sec_battery.c b/drivers/battery_v2/sec_battery.c
+--- a/drivers/battery_v2/sec_battery.c
++++ b/drivers/battery_v2/sec_battery.c
+@@ -3341,10 +3341,15 @@ void sec_bat_get_battery_info(struct sec_battery_info *battery) {
+ 			POWER_SUPPLY_PROP_ENERGY_NOW, value);
+ 	}
+ 
+-	value.intval = (battery->status == POWER_SUPPLY_STATUS_FULL) ?
+-		100 : battery->capacity;
+-	psy_do_property(battery->pdata->wireless_charger_name, set,
+-		POWER_SUPPLY_PROP_CAPACITY, value);
++	/* Mamuthka: az A51-nek nincs vezeték nélküli töltője
++	 * (wireless_charger_name == NULL); a feltétel nélküli hívás 10 s-onként
++	 * „Fail to set psy ((null))” hibát írt a kernelnaplóba. */
++	if (battery->pdata->wireless_charger_name) {
++		value.intval = (battery->status == POWER_SUPPLY_STATUS_FULL) ?
++			100 : battery->capacity;
++		psy_do_property(battery->pdata->wireless_charger_name, set,
++			POWER_SUPPLY_PROP_CAPACITY, value);
++	}
+ 
+ 	sec_bat_get_temperature_info(battery);
+ 

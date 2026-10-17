@@ -1,0 +1,40 @@
+#!/bin/sh
+# Mamuthka linux – Galaxy A51 hang (hibak.txt 84.).
+#
+#   mamuthka-hang beallit   a hangszóró-útvonal beállítása (rendszerindításkor
+#                           a mamuthka-hang.service futtatja)
+#   mamuthka-hang teszt     beállítás + egy rövid tesztmondat a hangszórón
+#
+# Az útvonal (a gyári mixer_paths_ti.xml alapján, a DSP-s hangszóróvédelem
+# – ERAP/DSM – nélkül): RDMA0/RDMA1 (PipeWire) → SPUS ASRC → SPUS OUT → SIFS0
+# keverő → UAIF2 → TI TAS2562 hangszóró-erősítő.
+# A fülhallgató (RT5665, UAIF0) és a fülhangszóró még nincs bekötve.
+set -u
+c() { amixer -q -c0 cset name="$1" "$2" 2>/dev/null || echo "mamuthka-hang: nem sikerült: $1 = $2" >&2; }
+
+beallit() {
+	c 'ABOX UAIF2 width' 16
+	c 'ABOX UAIF2 channel' 2
+	c 'ABOX UAIF2 rate' 48000
+	for i in 0 1; do
+		c "ABOX SPUS ASRC$i" On
+		c "ABOX SPUS OUT$i" SIFS0
+	done
+	c 'ABOX UAIF2 SPK' SIFS0
+	c 'TAS2562 DAC Mute' off
+	c 'TAS2562 Left Speaker Switch' On
+}
+
+case "${1:-beallit}" in
+beallit) beallit ;;
+teszt)
+	beallit
+	f=/usr/share/sounds/alsa/Front_Center.wav
+	if [ -n "${XDG_RUNTIME_DIR:-}" ] && command -v pw-play >/dev/null; then
+		pw-play "$f"
+	else
+		aplay -q -D plughw:0,1 "$f"
+	fi
+	;;
+*) echo "Használat: mamuthka-hang [beallit|teszt]" >&2; exit 2 ;;
+esac
