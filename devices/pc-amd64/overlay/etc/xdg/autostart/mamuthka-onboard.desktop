@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Onboard
+Comment=Érintőképernyős billentyűzet (PC-n alapból nem indul; a Kisegítő lehetőségekben bekapcsolható)
+Exec=onboard
+OnlyShowIn=X-Cinnamon;
+NoDisplay=true
+Hidden=true

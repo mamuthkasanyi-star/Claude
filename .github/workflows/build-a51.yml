@@ -5,7 +5,8 @@ on:
   push:
     branches: [claude/remote-control-wo3lxh]
     tags: ['v*']
-    paths-ignore: ['**.md']
+    # A PC-s live ISO-nak külön workflow-ja van (build-pc-live.yml).
+    paths-ignore: ['**.md', 'devices/pc-amd64/**', 'scripts/build-pc-live.sh', '.github/workflows/build-pc-live.yml']
 
 permissions:
   contents: write

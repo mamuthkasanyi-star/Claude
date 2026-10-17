@@ -1,0 +1,9 @@
+// Mamuthka linux – PC live: a helyi, aktív munkamenetben a sudo csoport
+// tagjai (a live-felhasználó) jelszó nélkül végezhetnek rendszergazdai
+// műveletet (lemezkezelés, hálózat, szoftvertelepítés) – a sudo is jelszó
+// nélküli (/etc/sudoers.d/casper).
+polkit.addRule(function(action, subject) {
+	if (subject.local && subject.active && subject.isInGroup("sudo")) {
+		return polkit.Result.YES;
+	}
+});

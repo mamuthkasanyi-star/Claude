@@ -1,0 +1,23 @@
+# Mamuthka linux – PC (felülírja a közös, A51-es változatot)
+# Itt az Ubuntu generic kernel és a linux-firmware KELL, ezért ezek nincsenek
+# letiltva. A live-rendszerben nincs rendszerbetöltő: a pendrive GRUB-ját a
+# mamuthka-usb-telepit.sh, az ISO-ét a build-pc-live.sh teszi fel. A grub-*
+# tiltása miatt a kernel „Recommends: grub-pc | grub-efi…” ajánlása kimarad
+# (a grub-pc postinst-je a build gépen lemezt keresne).
+Package: grub-* flash-kernel
+Pin: release a=*
+Pin-Priority: -1
+
+# Snap nincs: a Firefox a Mozilla PPA-ból jön, a többi Flatpakból.
+Package: snapd
+Pin: release a=*
+Pin-Priority: -1
+
+# Firefox a Mozilla PPA-ból (nem snap)
+Package: firefox*
+Pin: release o=LP-PPA-mozillateam
+Pin-Priority: 1001
+
+Package: firefox*
+Pin: release o=Ubuntu
+Pin-Priority: -1
